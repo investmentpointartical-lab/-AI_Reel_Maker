@@ -63,7 +63,26 @@ summary{cursor:pointer;font-weight:700;font-size:13.5px}
 dialog{border:0;border-radius:16px;padding:20px;max-width:460px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.3)}
 dialog::backdrop{background:rgba(10,15,40,.5)}
 dialog h2{font-size:17px;margin:0 0 6px}
-@media(max-width:860px){main{grid-template-columns:1fr}.chatbox{height:70vh}.side{position:static;max-width:340px;margin:0 auto;width:100%}}
+/* Play / Download on the video itself */
+.stage{position:relative}
+.ov{position:absolute;left:0;right:0;bottom:16px;display:flex;justify-content:space-between;padding:0 14px;pointer-events:none}
+.ov button{pointer-events:auto;width:50px;height:50px;border-radius:50%;padding:0;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.ov button:disabled{opacity:.5}
+
+/* Phones: like a chat app. The chat fills the screen, the input box stays at the bottom, and the reel shows up in the
+   chat as the AI's answer, with its buttons, colour, caption and editing underneath */
+@media(max-width:860px){
+  header{position:sticky;top:0;z-index:5;padding:8px 12px}
+  header h1{font-size:16px}
+  main{display:block;padding:0;max-width:none}
+  .chatbox{height:calc(100vh - 49px);height:calc(100dvh - 49px);min-height:0;border:0;border-radius:0}
+  #chat{padding:12px}
+  .msg{max-width:88%}
+  .composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+  .side{position:static;align-self:flex-start;width:min(92%,360px);background:var(--soft);border-radius:18px;padding:10px;flex:0 0 auto}
+  .side .mainRow{display:none}
+  .side details{background:#fff}
+}
 </style>
 </head>
 <body>
@@ -87,9 +106,12 @@ dialog h2{font-size:17px;margin:0 0 6px}
     </div>
   </section>
 
-  <aside class="side">
-    <canvas id="cv" width="1080" height="1920"></canvas>
-    <div class="row">
+  <aside class="side" id="side">
+    <div class="stage">
+      <canvas id="cv" width="1080" height="1920"></canvas>
+      <div class="ov"><button id="ovPlay" title="Play" aria-label="Play">▶</button><button id="ovDown" title="Download video" aria-label="Download video">⬇</button></div>
+    </div>
+    <div class="row mainRow">
       <button id="play">▶ Play</button>
       <button id="download" class="primary">⬇ Download video</button>
     </div>
@@ -440,6 +462,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
       if (m.img) { var im = document.createElement('img'); im.src = m.img; im.alt = ''; d.appendChild(im); }
       d.appendChild(document.createTextNode(m.text)); box.appendChild(d);
     });
+    placeSide();
     if (waiting) { var w = document.createElement('div'); w.className = 'msg ai wait'; w.id = 'waitMsg'; w.textContent = 'Making your reel…'; box.appendChild(w); }
     box.scrollTop = box.scrollHeight;
   }
@@ -481,6 +504,8 @@ dialog h2{font-size:17px;margin:0 0 6px}
           + (result.background === 'ai' ? ' Making AI pictures for the background…' : '') + ' Press ▶ Play to watch it, ⬇ Download video to save it.' + (used ? ' (' + used + ')' : ''));
         if (next.read) say('read', 'Read from your picture, please check:\n' + next.read);
         showReel(); time = 0; draw();
+        // on a phone: the new reel comes into view (it sits in the chat under the AI answer)
+        if (window.matchMedia('(max-width: 860px)').matches) $('side').scrollIntoView({ block: 'start', behavior: 'smooth' });
         if (settings.bg === 'ai') aiPictures(false);
       });
     }).catch(function (e) { showChat(); say('bad', e.message || 'Something went wrong. Please try again.'); })
@@ -516,6 +541,12 @@ dialog h2{font-size:17px;margin:0 0 6px}
     l.textContent = labelText; if (rows) el.rows = rows; else el.type = 'text'; if (max) el.maxLength = max;
     el.value = value; el.addEventListener('input', function () { onInput(el.value); saveAndDraw(); });
     wrap.appendChild(l); wrap.appendChild(el); return wrap;
+  }
+  // The reel preview: beside the chat on a computer; on a phone inside the chat, under the last message (only when there is a reel)
+  function placeSide() {
+    var side = $('side'), phone = window.matchMedia('(max-width: 860px)').matches;
+    if (phone && reel) { side.hidden = false; $('chat').appendChild(side); }
+    else { side.hidden = phone; if (side.parentNode !== document.querySelector('main')) document.querySelector('main').appendChild(side); }
   }
   function showReel() {
     $('editBox').hidden = $('captionBox').hidden = !reel;
@@ -680,10 +711,10 @@ dialog h2{font-size:17px;margin:0 0 6px}
   function play() {
     return new Promise(function (resolve) {
       var start = performance.now(), end = total();
-      playing = true; $('play').textContent = '■ Stop';
+      playing = true; $('play').textContent = '■ Stop'; $('ovPlay').textContent = '■';
       (function step() {
         time = Math.min(end, (performance.now() - start) / 1000); draw();
-        if (time < end && playing) setTimeout(step, 1000 / 30); else { playing = false; $('play').textContent = '▶ Play'; resolve(); }
+        if (time < end && playing) setTimeout(step, 1000 / 30); else { playing = false; $('play').textContent = '▶ Play'; $('ovPlay').textContent = '▶'; resolve(); }
       })();
     });
   }
@@ -702,9 +733,9 @@ dialog h2{font-size:17px;margin:0 0 6px}
       a.download = (reel.title.replace(/[^\p{L}\p{M}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'reel') + '.' + ext;
       document.body.appendChild(a); a.click(); a.remove();
       status('Video saved to Downloads (' + ext.toUpperCase() + '). Add music in Instagram / Facebook when you post.' + (ext === 'webm' ? ' Instagram needs MP4: use the newest Chrome or Edge.' : ''));
-      $('download').disabled = $('play').disabled = false;
+      $('download').disabled = $('play').disabled = $('ovDown').disabled = $('ovPlay').disabled = false;
     };
-    $('download').disabled = $('play').disabled = true;
+    $('download').disabled = $('play').disabled = $('ovDown').disabled = $('ovPlay').disabled = true;
     status('Making the video… keep this tab open and in front (' + Math.round(total()) + ' seconds).');
     rec.start();
     play().then(function () { setTimeout(function () { rec.stop(); }, 250); });
@@ -806,8 +837,18 @@ dialog h2{font-size:17px;margin:0 0 6px}
   ['dragleave', 'drop'].forEach(function (n) { $('bar').addEventListener(n, function () { $('bar').classList.remove('drop'); }); });
   $('bar').addEventListener('drop', function (e) { e.preventDefault(); if (e.dataTransfer.files[0]) loadPicture(e.dataTransfer.files[0]); });
 
-  $('play').addEventListener('click', function () { if (playing) { playing = false; return; } status(''); play(); });
+  function togglePlay() { if (playing) { playing = false; return; } status(''); play(); }
+  $('play').addEventListener('click', togglePlay);
+  $('ovPlay').addEventListener('click', togglePlay);
   $('download').addEventListener('click', makeVideo);
+  $('ovDown').addEventListener('click', makeVideo);
+  // phone or computer layout when the window size changes (turning the phone)
+  // (checked on every resize, acted on only when it changes: on a phone the keyboard opening also resizes the window)
+  var wasPhone = window.matchMedia('(max-width: 860px)').matches;
+  window.addEventListener('resize', function () {
+    var phone = window.matchMedia('(max-width: 860px)').matches;
+    if (phone !== wasPhone) { wasPhone = phone; showChat(); }
+  });
   Object.keys(THEMES).forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = THEMES[k][0]; $('theme').appendChild(o); });
   $('theme').addEventListener('change', function () { settings.theme = $('theme').value; store.set('settings', settings); draw(); });
   $('bg').addEventListener('change', function () {
