@@ -147,6 +147,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
       <label style="margin:0"><span class="muted">Colour</span><select id="theme"></select></label>
       <label style="margin:0"><span class="muted">Background</span><select id="bg"><option value="ai">AI picture</option><option value="colour">No picture</option><option value="own">My picture</option></select></label>
     </div>
+    <div class="row" id="picRow" hidden><button id="makePics" class="small" title="Make new AI pictures for every slide">✨ Make AI pictures again</button></div>
     <input type="file" id="bgFile" accept="image/jpeg,image/png,image/webp" hidden>
     <div id="status" aria-live="polite"></div>
     <details id="captionBox" hidden><summary>Caption for the post</summary>
@@ -474,6 +475,9 @@ dialog h2{font-size:17px;margin:0 0 6px}
   function say(who, text, img) { chat.push({ who: who, text: text, img: img || '' }); if (chat.length > 40) chat = chat.slice(-40); saveChat(); showChat(); }
   function saveChat() { store.set('chat', chat.map(function (m) { return { who: m.who, text: m.text }; })); }   // pictures are not kept (too big)
   function showChat(waiting) {
+    // the reel card and the details panel are taken out first: emptying the chat must not throw them away
+    var main = document.querySelector('main');
+    [$('reelCard'), $('side')].forEach(function (el) { if (el && el.parentNode !== main) main.appendChild(el); });
     var box = $('chat'); box.textContent = '';
     if (!chat.length) {
       var hi = document.createElement('div'); hi.className = 'msg ai';
@@ -590,6 +594,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
     if (side.parentNode !== main) main.appendChild(side);
   }
   function showReel() {
+    if (typeof showPicRow === 'function') showPicRow();
     $('editBox').hidden = $('captionBox').hidden = !reel;
     if (!reel) return;
     $('title').value = reel.title; $('endText').value = reel.endText || ''; $('endSmall').value = reel.endSmall || '';
@@ -902,7 +907,11 @@ dialog h2{font-size:17px;margin:0 0 6px}
   });
   Object.keys(THEMES).forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = THEMES[k][0]; $('theme').appendChild(o); });
   $('theme').addEventListener('change', function () { settings.theme = $('theme').value; store.set('settings', settings); draw(); });
+  // "Make AI pictures again": shown when the background is AI picture and there is a reel
+  function showPicRow() { $('picRow').hidden = !(reel && settings.bg === 'ai'); }
+  $('makePics').addEventListener('click', function () { aiPictures(true, null, true); });
   $('bg').addEventListener('change', function () {
+    setTimeout(showPicRow, 0);
     settings.bg = $('bg').value; store.set('settings', settings); status('');
     if (settings.bg === 'ai') aiPictures(true, null, true);
     if (settings.bg === 'own') $('bgFile').click();
@@ -1069,15 +1078,21 @@ dialog h2{font-size:17px;margin:0 0 6px}
     var kept = localStorage.getItem(P + 'bgimg');
     if (kept) { var oldImg = new Image(); oldImg.onload = function () { var c = document.createElement('canvas'); c.width = 720; c.height = 1280; c.getContext('2d').drawImage(oldImg, 0, 0, 720, 1280); bgImg = c; draw(); }; oldImg.src = kept; }
   } catch (e) {}
+  var restored = [];
   try {   // the AI pictures of the reel of last time
     var keptPics = JSON.parse(localStorage.getItem(P + 'pics') || '{}') || {};
     Object.keys(keptPics).forEach(function (idea) {
-      var im = new Image();
-      im.onload = function () { var c = document.createElement('canvas'); c.width = 720; c.height = 1280; c.getContext('2d').drawImage(im, 0, 0, 720, 1280); pics[idea] = c; draw(); };
-      im.src = keptPics[idea];
+      restored.push(new Promise(function (done) {
+        var im = new Image();
+        im.onload = function () { var c = document.createElement('canvas'); c.width = 720; c.height = 1280; c.getContext('2d').drawImage(im, 0, 0, 720, 1280); pics[idea] = c; draw(); done(); };
+        im.onerror = done;
+        im.src = keptPics[idea];
+      }));
     });
   } catch (e) {}
   showChat(); showReel(); draw(); grow();
+  // AI pictures still missing (the page was closed, or a picture failed): made now, once the saved ones are back
+  Promise.all(restored).then(function () { if (reel && settings.bg === 'ai' && settings.pkey) aiPictures(false); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
   if (!store.get('settings', null) && !settings.key && !settings.okey && !settings.gkey) openKeys();   // first visit: paste the keys
   // for checking the page from the browser's console
