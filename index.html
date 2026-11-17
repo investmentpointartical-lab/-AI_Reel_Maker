@@ -76,6 +76,9 @@ dialog h2{font-size:17px;margin:0 0 6px}
 .ov button:disabled{opacity:.5}
 #ovPlay{position:absolute;left:50%;top:70%;transform:translate(-50%,-50%);width:68px;height:68px;border-radius:50%;padding:0 0 0 5px;border:0;background:rgba(30,30,30,.55);color:#fff;font-size:30px;backdrop-filter:blur(6px)}
 .reelcard.playing #ovPlay{opacity:0}
+.recLabel{position:absolute;top:14px;left:50%;transform:translateX(-50%);white-space:nowrap;background:rgba(0,0,0,.68);color:#fff;border-radius:16px;padding:6px 14px;font-size:13px;font-weight:700}
+.videoDone{margin-top:8px;font-size:13px;background:#e9f7ef;color:#1b6b3f;border:1px solid #bfe6cf;border-radius:12px;padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.videoDone a{font-weight:700;color:var(--main)}
 .reelcard.playing:hover #ovPlay{opacity:.85}
 /* while the reel is being made: a dotted placeholder with a percentage */
 .making{position:relative;aspect-ratio:9/16;border-radius:18px;background-color:#fafbff;
@@ -132,8 +135,10 @@ dialog h2{font-size:17px;margin:0 0 6px}
     <div class="stage" id="stage">
       <canvas id="cv" width="1080" height="1920"></canvas>
       <button id="ovPlay" title="Play" aria-label="Play">▶</button>
+      <div class="recLabel" id="recLabel" hidden></div>
       <div class="ov"><button id="ovEdit" title="Edit the reel">✏ Edit</button><button id="ovDown" title="Download video" aria-label="Download video">⬇</button></div>
     </div>
+    <div class="videoDone" id="videoDone" hidden><span id="videoDoneText">✔ Video saved to Downloads</span><a id="videoLink" href="#">Save again</a><button id="videoShare" class="small" hidden>Share</button></div>
   </div>
 
   <aside class="side" id="side">
@@ -147,7 +152,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
       <label style="margin:0"><span class="muted">Colour</span><select id="theme"></select></label>
       <label style="margin:0"><span class="muted">Background</span><select id="bg"><option value="ai">AI picture</option><option value="colour">No picture</option><option value="own">My picture</option></select></label>
     </div>
-    <div class="row" id="picRow" hidden><button id="makePics" class="small" title="Make new AI pictures for every slide">✨ Make AI pictures again</button></div>
+    <div class="row" id="picRow" hidden><button id="makePics" class="small" title="Make new AI pictures for every slide">✨ Make AI pictures again (some failed)</button></div>
     <input type="file" id="bgFile" accept="image/jpeg,image/png,image/webp" hidden>
     <div id="status" aria-live="polite"></div>
     <details id="captionBox" hidden><summary>Caption for the post</summary>
@@ -515,11 +520,16 @@ dialog h2{font-size:17px;margin:0 0 6px}
     busy = true; $('send').disabled = true; asking = ''; showChat(true);
     // which AI is working, and for how long
     // the percentage is an estimate from the time (AIs don't say how far they are): fast at first, never 100% before the end
-    var started = Date.now(), ticker = setInterval(function () {
+    var started = Date.now(), picStep = null, ticker = setInterval(function () {
       var w = $('waitMsg'), p = $('waitPct'); if (!w) return;
-      var s = (Date.now() - started) / 1000;
-      w.textContent = 'Making your reel…' + (asking ? ' asking ' + asking : '');
-      if (p) p.textContent = Math.min(95, Math.round(100 * (1 - Math.exp(-s / 9)))) + '%';
+      var s = (Date.now() - started) / 1000, withPics = settings.bg === 'ai' && settings.pkey;
+      if (picStep) {
+        w.textContent = 'Making AI pictures… ' + Math.min(picStep.done + 1, picStep.total) + ' / ' + picStep.total;
+        if (p) p.textContent = Math.min(98, 40 + Math.round(60 * picStep.done / picStep.total)) + '%';
+      } else {
+        w.textContent = 'Writing your reel…' + (asking ? ' asking ' + asking : '');
+        if (p) p.textContent = Math.round((withPics ? 40 : 95) * (1 - Math.exp(-s / 9))) + '%';
+      }
     }, 500);
     askAI(message).then(function (data) {
       var result = clean(data), next = result.reel;
@@ -533,19 +543,25 @@ dialog h2{font-size:17px;margin:0 0 6px}
       }
       next.endText = next.endText || 'Follow for more';
       next.endSmall = next.endSmall || store.get('endSmall', '');
-      return Promise.resolve().then(function () {
+      reel = next; store.set('reel', reel);
+      // the background the owner asked for in the message
+      if (result.background === 'own' && hadPicture) useBackground(dataUrlBlob(hadPicture.url));
+      if (result.background && result.background !== settings.bg) { settings.bg = result.background; $('bg').value = settings.bg; store.set('settings', settings); }
+      setPicture(null);
+      // AI picture background: the pictures are part of the reel, made before it is shown (only the missing ones)
+      var pictures = settings.bg === 'ai' && settings.pkey
+        ? aiPictures(false, null, false, function (done, total) { picStep = { done: done, total: total }; })
+        : Promise.resolve(null);
+      return pictures.then(function (made) {
         next.worked = Math.max(1, Math.round((Date.now() - started) / 1000));
-        reel = next; store.set('reel', reel);
-        // the background the owner asked for in the message
-        if (result.background === 'own' && hadPicture) useBackground(dataUrlBlob(hadPicture.url));
-        if (result.background && result.background !== settings.bg) { settings.bg = result.background; $('bg').value = settings.bg; store.set('settings', settings); }
-        setPicture(null);
-        say('ai', (result.reply || 'Your reel is ready.')
-          + (result.background === 'ai' ? ' Making AI pictures for the background…' : '') + ' Press ▶ to watch it, ⬇ to save the video.' + (used ? ' (' + used + ')' : ''));
+        store.set('reel', reel);
+        say('ai', (result.reply || 'Your reel is ready.') + (made && made.total && !made.error ? ' With ' + made.total + ' AI pictures.' : '')
+          + ' Press ▶ to watch it, ⬇ to save the video.' + (used ? ' (' + used + ')' : ''));
         if (next.read) say('read', 'Read from your picture, please check:\n' + next.read);
+        if (made && made.error) say('bad', 'Some AI pictures could not be made (' + made.error + ') Press ✨ Make AI pictures again under Background.');
+        if (settings.bg === 'ai' && !settings.pkey) say('bad', 'AI background pictures need the Pollinations key: paste it in ⚙ Keys. Until then the reel uses colours.');
         showReel(); time = COVER; draw();
         $('reelCard').scrollIntoView({ block: 'start', behavior: 'smooth' });   // the new reel comes into view
-        if (settings.bg === 'ai') aiPictures(false);
       });
     }).catch(function (e) { showChat(); say('bad', e.message || 'Something went wrong. Please try again.'); })
       .then(function () { clearInterval(ticker); busy = false; $('send').disabled = false; });
@@ -645,7 +661,8 @@ dialog h2{font-size:17px;margin:0 0 6px}
     var tags = (reel.hashtags || []).map(function (t) { return '#' + t; }).join(' ');
     $('caption').value = [reel.title, '', lines.join('\n'), '', reel.endText ? '👉 ' + reel.endText : '', '', tags].join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
-  function saveAndDraw() { store.set('reel', reel); caption(); if (!playing) { time = Math.min(time, total()); draw(); } }
+  function saveAndDraw() {
+    $('videoDone').hidden = true; store.set('reel', reel); caption(); if (!playing) { time = Math.min(time, total()); draw(); } }
 
   /* ---------------- the reel on the canvas (1080 x 1920) ---------------- */
   var cv = $('cv'), g = cv.getContext('2d'), W = 1080, H = 1920;
@@ -767,24 +784,41 @@ dialog h2{font-size:17px;margin:0 0 6px}
   }
 
   function status(text, bad) { $('status').textContent = text; $('status').style.color = bad ? 'var(--red)' : 'var(--green)'; }
+  var videoUrl = '';
   function makeVideo() {
     if (!reel) { status('Make a reel first: type your idea and press ➤.', true); return; }
     var type = cv.captureStream && window.MediaRecorder && ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0];
     if (!type) { status('This browser cannot make videos. Use Chrome or Edge.', true); return; }
     var stream = cv.captureStream(30), rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6000000 }), chunks = [];
     rec.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+    var progress = null;
     rec.onstop = function () {
+      clearInterval(progress); $('recLabel').hidden = true;
       recording = false; time = COVER; draw();   // the video ends on the last screen; the card goes back to its cover
       stream.getTracks().forEach(function (t) { t.stop(); });
-      var ext = type.indexOf('mp4') > -1 ? 'mp4' : 'webm', a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(chunks, { type: type.split(';')[0] }));
-      a.download = (reel.title.replace(/[^\p{L}\p{M}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'reel') + '.' + ext;
-      document.body.appendChild(a); a.click(); a.remove();
-      status('Video saved to Downloads (' + ext.toUpperCase() + '). Add music in Instagram / Facebook when you post.' + (ext === 'webm' ? ' Instagram needs MP4: use the newest Chrome or Edge.' : ''));
+      var ext = type.indexOf('mp4') > -1 ? 'mp4' : 'webm', blob = new Blob(chunks, { type: type.split(';')[0] });
+      var name = (reel.title.replace(/[^\p{L}\p{M}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'reel') + '.' + ext;
       $('download').disabled = $('play').disabled = $('ovDown').disabled = $('ovPlay').disabled = false;
+      if (!blob.size) { status('The video came out empty: keep this tab open and in front while it is made, then press ⬇ again.', true); return; }
+      // the file goes to Downloads at once; the bar under the reel can save it again, or share it on a phone
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+      videoUrl = URL.createObjectURL(blob);
+      $('videoLink').href = videoUrl; $('videoLink').download = name;
+      var file = window.File ? new File([blob], name, { type: blob.type }) : null;
+      $('videoShare').hidden = !(file && navigator.canShare && navigator.canShare({ files: [file] }));
+      $('videoShare').onclick = function () { navigator.share({ files: [file], title: reel.title }).catch(function () {}); };
+      $('videoDoneText').textContent = '✔ Video saved to Downloads (' + ext.toUpperCase() + ', ' + Math.max(1, Math.round(blob.size / 1048576)) + ' MB)';
+      $('videoDone').hidden = false;
+      $('videoLink').click();
+      status('Video saved to Downloads. Add music in Instagram / Facebook when you post.' + (ext === 'webm' ? ' Instagram needs MP4: use the newest Chrome or Edge.' : ''));
     };
     $('download').disabled = $('play').disabled = $('ovDown').disabled = $('ovPlay').disabled = true;
-    status('Making the video… keep this tab open and in front (' + Math.round(total()) + ' seconds).');
+    $('videoDone').hidden = true;
+    // the video is recorded while the reel plays once, in real time: the progress shows on the reel itself
+    var length = total();
+    status('Making the video… keep this tab open and in front (' + Math.round(length) + ' seconds).');
+    $('recLabel').hidden = false; $('recLabel').textContent = 'Saving video… 0%';
+    progress = setInterval(function () { $('recLabel').textContent = 'Saving video… ' + Math.min(99, Math.round(100 * time / length)) + '% · keep this tab open'; }, 300);
     recording = true; rec.start();
     play().then(function () { setTimeout(function () { rec.stop(); }, 250); });
   }
@@ -809,7 +843,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
   }
   /* ---------------- AI pictures: one for the first screen and one for every slide ---------------- */
   var pics = {};   // picture idea -> picture (720 x 1280), so a picture is made only once for the same idea
-  var making = false;
+  var making = null, picsFailed = false;   // the pictures being made (a promise), and whether the last try failed
   // One AI picture for one idea (a photo for an advertisement, without any words in it)
   function aiPicture(scene) {
     var prompt = scene + ', professional advertising photo, vertical 9:16, natural light, sharp, high detail, no text, no words, no letters, no numbers, no logos, no watermark';
@@ -845,21 +879,31 @@ dialog h2{font-size:17px;margin:0 0 6px}
   }
   // Makes the pictures that are missing (all of them again with `fresh`), one after the other, the preview showing each as it comes
   // `asked`: the owner pressed something (then a missing key opens ⚙ Keys; when it runs by itself after a new reel, only a note)
-  function aiPictures(fresh, only, asked) {
-    if (!reel) { if (asked) status('Make a reel first: the AI pictures are made with it.', true); return; }
-    if (!settings.pkey) { status('AI background pictures need the Pollinations key (⚙ Keys). Until then the reel uses colours.', true); if (asked) { openKeys(); $('pkey').focus(); } return; }
-    if (making) return;
+  function aiPictures(fresh, only, asked, onStep) {
+    if (!reel) { if (asked) status('Make a reel first: the AI pictures are made with it.', true); return Promise.resolve(null); }
+    if (!settings.pkey) { status('AI background pictures need the Pollinations key (⚙ Keys). Until then the reel uses colours.', true); if (asked) { openKeys(); $('pkey').focus(); } return Promise.resolve(null); }
+    if (making) return making;
     var ideas = only ? [only] : [sceneOf(null)].concat(reel.slides.map(sceneOf));
     ideas = ideas.filter(function (s, i) { return s && ideas.indexOf(s) === i && (fresh || !pics[s]); });
-    if (!ideas.length) { draw(); return; }
-    making = true;
-    var done = 0;
-    (function next() {
-      if (done >= ideas.length) { making = false; savePics(); status(ideas.length === 1 ? 'New AI picture added.' : 'AI pictures added: one for each slide. Press ▶ Play.'); showReel(); return; }
-      status('Making AI pictures… ' + (done + 1) + ' / ' + ideas.length + ' (about 10–30 seconds each)');
-      aiPicture(ideas[done]).then(function (c) { pics[ideas[done]] = c; done++; draw(); next(); },
-        function (e) { making = false; savePics(); status(e.message + (done ? ' (' + done + ' of ' + ideas.length + ' pictures made)' : ''), true); });
-    })();
+    if (!ideas.length) { draw(); return Promise.resolve({ made: 0, total: 0 }); }
+    picsFailed = false; showPicRow();
+    making = new Promise(function (resolve) {
+      var done = 0;
+      (function next() {
+        if (onStep) onStep(done, ideas.length);
+        if (done >= ideas.length) {
+          making = null; savePics(); status(ideas.length === 1 ? 'New AI picture added.' : 'AI pictures added: one for each slide.'); showReel();
+          resolve({ made: done, total: ideas.length }); return;
+        }
+        status('Making AI pictures… ' + (done + 1) + ' / ' + ideas.length + ' (about 10–30 seconds each)');
+        aiPicture(ideas[done]).then(function (c) { pics[ideas[done]] = c; done++; draw(); next(); }, function (e) {
+          making = null; picsFailed = true; savePics(); showReel();
+          status(e.message + (done ? ' (' + done + ' of ' + ideas.length + ' pictures made)' : ''), true);
+          resolve({ made: done, total: ideas.length, error: e.message });
+        });
+      })();
+    });
+    return making;
   }
   function useBackground(source) {
     return toCanvas(source).then(function (c) {
@@ -908,7 +952,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
   Object.keys(THEMES).forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = THEMES[k][0]; $('theme').appendChild(o); });
   $('theme').addEventListener('change', function () { settings.theme = $('theme').value; store.set('settings', settings); draw(); });
   // "Make AI pictures again": shown when the background is AI picture and there is a reel
-  function showPicRow() { $('picRow').hidden = !(reel && settings.bg === 'ai'); }
+  function showPicRow() { $('picRow').hidden = !(reel && settings.bg === 'ai' && picsFailed); }
   $('makePics').addEventListener('click', function () { aiPictures(true, null, true); });
   $('bg').addEventListener('change', function () {
     setTimeout(showPicRow, 0);
