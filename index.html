@@ -130,6 +130,8 @@ dialog h2{font-size:17px;margin:0 0 6px}
   <div id="keyCheck" class="muted" style="white-space:pre-wrap;margin-top:8px" aria-live="polite"></div>
   <div class="row"><button id="testKeys">Test keys</button><button id="saveKeys" class="primary">Save</button><button id="closeKeys">Close</button></div>
   <div class="row"><button id="phoneKeys">📱 Send keys to phone</button></div>
+  <label for="keyCode">On the phone: paste the keys link here <span class="muted">(if scanning did not work)</span></label>
+  <div style="display:flex;gap:8px"><input type="text" id="keyCode" autocomplete="off" placeholder="https://…#k=…" style="flex:1"><button id="useKeyCode" class="small">Use</button></div>
   <div id="phoneBox" hidden style="text-align:center;margin-top:10px">
     <p class="muted" style="margin:0 0 8px">Scan this with your phone's camera and open the link: the keys are saved there in one step.</p>
     <div id="qr" style="display:inline-block;background:#fff;padding:10px;border-radius:10px"></div>
@@ -837,13 +839,43 @@ dialog h2{font-size:17px;margin:0 0 6px}
 
   // Send keys to phone: the keys travel in the part of the link after "#", which browsers never send to any website;
   // the phone saves them and removes them from the address straight away
+  // The keys one after the other, split by ~ (keys never contain ~): about a third shorter than before, so the QR code
+  // has fewer, bigger squares and a phone camera reads it from a screen more easily
+  var KEY_ORDER = ['key', 'okey', 'gkey', 'pkey'];
   function keyLink() {
-    var keys = {};
-    ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { var v = cleanKey($(k).value); if (v) keys[k] = v; });
-    if (!Object.keys(keys).length) return '';
-    var code = btoa(unescape(encodeURIComponent(JSON.stringify(keys)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    return location.origin + location.pathname + '#keys=' + code;
+    var values = KEY_ORDER.map(function (k) { return cleanKey($(k).value); });
+    if (!values.some(Boolean)) return '';
+    return location.origin + location.pathname + '#k=' + values.map(encodeURIComponent).join('~');
   }
+  // The keys out of a keys link or code (also the longer links made before): { key, okey, gkey, pkey } or null
+  function readKeyCode(text) {
+    text = String(text || '').trim();
+    var m = /k=([^&\s]+)/.exec(text), keys = {};
+    try {
+      if (m) {
+        decodeURIComponent(m[1]).split('~').forEach(function (v, i) { if (KEY_ORDER[i] && cleanKey(v)) keys[KEY_ORDER[i]] = cleanKey(v); });
+      } else {
+        var old = /keys=([A-Za-z0-9_-]+)/.exec(text);
+        if (!old) return null;
+        var got = JSON.parse(decodeURIComponent(escape(atob(old[1].replace(/-/g, '+').replace(/_/g, '/')))));
+        KEY_ORDER.forEach(function (k) { if (got[k]) keys[k] = cleanKey(got[k]); });
+      }
+    } catch (e) { return null; }
+    return Object.keys(keys).length ? keys : null;
+  }
+  function saveSentKeys(keys) {
+    Object.keys(keys).forEach(function (k) { settings[k] = keys[k]; });
+    store.set('settings', settings);
+    return Object.keys(keys).length;
+  }
+  $('useKeyCode').addEventListener('click', function () {
+    var keys = readKeyCode($('keyCode').value);
+    if (!keys) { $('keyCheck').style.color = 'var(--red)'; $('keyCheck').textContent = 'This is not a keys link. On the computer press 📱 Send keys to phone → Copy the link instead, send it to yourself and paste the whole link here.'; return; }
+    var n = saveSentKeys(keys);
+    KEY_ORDER.forEach(function (k) { $(k).value = settings[k]; });
+    $('keyCode').value = '';
+    $('keyCheck').style.color = 'var(--green)'; $('keyCheck').textContent = '✔ ' + n + ' key' + (n === 1 ? '' : 's') + ' saved on this device. Press Test keys to check them.';
+  });
   var qrLib = null;
   $('phoneKeys').addEventListener('click', function () {
     var link = keyLink();
@@ -856,7 +888,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
     });
     qrLib.then(function () {
       $('qr').textContent = '';
-      new QRCode($('qr'), { text: link, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.L });
+      new QRCode($('qr'), { text: link, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.L });
     }, function () { $('qr').textContent = 'The code could not be made (no internet?). Use "Copy the link instead".'; });
   });
   $('copyKeyLink').addEventListener('click', function () { copy(keyLink(), $('copyKeyLink'), 'Copy the link instead'); });
@@ -904,16 +936,14 @@ dialog h2{font-size:17px;margin:0 0 6px}
 
   /* ---------------- start ---------------- */
   // Keys sent from another device (📱 Send keys to phone): saved here, then removed from the address
-  var sentKeys = /#keys=([A-Za-z0-9_-]+)/.exec(location.hash);
-  if (sentKeys) {
-    try {
-      var got = JSON.parse(decodeURIComponent(escape(atob(sentKeys[1].replace(/-/g, '+').replace(/_/g, '/')))));
-      var n = 0;
-      ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { if (got[k]) { settings[k] = cleanKey(got[k]); n++; } });
-      store.set('settings', settings);
-      setTimeout(function () { status(n + ' key' + (n === 1 ? '' : 's') + ' saved on this device. You will not be asked again here.'); }, 0);
-    } catch (e) { setTimeout(function () { status('The keys in this link could not be read. Send them again.', true); }, 0); }
+  if (/k(eys)?=/.test(location.hash)) {
+    var sent = readKeyCode(location.hash);
     history.replaceState(null, '', location.pathname + location.search);
+    var count = sent ? saveSentKeys(sent) : 0;
+    setTimeout(function () {
+      if (count) { status('✔ ' + count + ' keys saved on this device.'); alert('✔ ' + count + ' keys saved on this phone.\n\nYou will not be asked for them again in this browser. Tip: add this page to your home screen.'); }
+      else status('The keys in this link could not be read. Send them again.', true);
+    }, 300);
   }
   // Ask the browser to keep this page's saved data (the keys) instead of clearing it when space runs low
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
