@@ -129,6 +129,13 @@ dialog h2{font-size:17px;margin:0 0 6px}
   <p class="muted">No keys at all? It still works: the page gives you a message to paste into the Gemini app, and you paste the answer back.</p>
   <div id="keyCheck" class="muted" style="white-space:pre-wrap;margin-top:8px" aria-live="polite"></div>
   <div class="row"><button id="testKeys">Test keys</button><button id="saveKeys" class="primary">Save</button><button id="closeKeys">Close</button></div>
+  <div class="row"><button id="phoneKeys">📱 Send keys to phone</button></div>
+  <div id="phoneBox" hidden style="text-align:center;margin-top:10px">
+    <p class="muted" style="margin:0 0 8px">Scan this with your phone's camera and open the link: the keys are saved there in one step.</p>
+    <div id="qr" style="display:inline-block;background:#fff;padding:10px;border-radius:10px"></div>
+    <div class="row"><button id="copyKeyLink" class="small">Copy the link instead</button></div>
+    <p class="muted" style="margin:8px 0 0;color:var(--red)">This code and link contain your keys. Use them only on your own phone, don't post them, and delete the link if you send it to yourself on WhatsApp.</p>
+  </div>
 </dialog>
 
 <dialog id="manual">
@@ -826,7 +833,33 @@ dialog h2{font-size:17px;margin:0 0 6px}
     showChat(); showReel(); draw(); status('Cleared. Type your idea and press ➤.');
   });
 
-  function openKeys() { ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { $(k).value = settings[k]; }); $('lang').value = settings.lang; $('keyCheck').textContent = ''; $('keys').showModal(); }
+  function openKeys() { ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { $(k).value = settings[k]; }); $('lang').value = settings.lang; $('keyCheck').textContent = ''; $('phoneBox').hidden = true; $('keys').showModal(); }
+
+  // Send keys to phone: the keys travel in the part of the link after "#", which browsers never send to any website;
+  // the phone saves them and removes them from the address straight away
+  function keyLink() {
+    var keys = {};
+    ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { var v = cleanKey($(k).value); if (v) keys[k] = v; });
+    if (!Object.keys(keys).length) return '';
+    var code = btoa(unescape(encodeURIComponent(JSON.stringify(keys)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return location.origin + location.pathname + '#keys=' + code;
+  }
+  var qrLib = null;
+  $('phoneKeys').addEventListener('click', function () {
+    var link = keyLink();
+    if (!link) { $('keyCheck').textContent = 'Paste your keys first.'; return; }
+    if (location.protocol === 'file:') { $('keyCheck').textContent = 'Open the online page (github.io) on this computer to send keys to the phone: a phone cannot open a file on this computer.'; return; }
+    $('phoneBox').hidden = false; $('qr').textContent = 'Making the code…';
+    qrLib = qrLib || new Promise(function (resolve, reject) {
+      var s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+      s.onload = resolve; s.onerror = function () { qrLib = null; reject(); }; document.head.appendChild(s);
+    });
+    qrLib.then(function () {
+      $('qr').textContent = '';
+      new QRCode($('qr'), { text: link, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.L });
+    }, function () { $('qr').textContent = 'The code could not be made (no internet?). Use "Copy the link instead".'; });
+  });
+  $('copyKeyLink').addEventListener('click', function () { copy(keyLink(), $('copyKeyLink'), 'Copy the link instead'); });
   $('openKeys').addEventListener('click', openKeys);
   $('closeKeys').addEventListener('click', function () { $('keys').close(); });
 
@@ -870,6 +903,20 @@ dialog h2{font-size:17px;margin:0 0 6px}
   $('manualCancel').addEventListener('click', function () { $('manual').close(); });
 
   /* ---------------- start ---------------- */
+  // Keys sent from another device (📱 Send keys to phone): saved here, then removed from the address
+  var sentKeys = /#keys=([A-Za-z0-9_-]+)/.exec(location.hash);
+  if (sentKeys) {
+    try {
+      var got = JSON.parse(decodeURIComponent(escape(atob(sentKeys[1].replace(/-/g, '+').replace(/_/g, '/')))));
+      var n = 0;
+      ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { if (got[k]) { settings[k] = cleanKey(got[k]); n++; } });
+      store.set('settings', settings);
+      setTimeout(function () { status(n + ' key' + (n === 1 ? '' : 's') + ' saved on this device. You will not be asked again here.'); }, 0);
+    } catch (e) { setTimeout(function () { status('The keys in this link could not be read. Send them again.', true); }, 0); }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  // Ask the browser to keep this page's saved data (the keys) instead of clearing it when space runs low
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { settings[k] = cleanKey(settings[k]); });   // keys saved before the clean-up
   if (!THEMES[settings.theme]) settings.theme = 'indigo';
   if (['colour', 'ai', 'own'].indexOf(settings.bg) < 0) settings.bg = 'colour';
