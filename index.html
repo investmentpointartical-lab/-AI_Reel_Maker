@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>AI Reel Maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Gujarati:wght@400;600;800&family=Noto+Sans+Devanagari:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1c2333;--main:#4f46e5;--soft:#eef0fd;--muted:#667085;--line:#e4e7ee;--bg:#f5f6fa;--red:#c62828;--green:#1b8a4b}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,"Noto Sans Gujarati","Noto Sans Devanagari","Segoe UI",system-ui,sans-serif}
+header{background:#fff;border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px}
+header h1{font-size:18px;margin:0;font-weight:800}
+header button{margin-left:auto}
+main{max-width:1100px;margin:0 auto;padding:16px;display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:20px;align-items:start}
+button{font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--main);padding:8px 14px;cursor:pointer}
+button.primary{background:var(--main);border-color:var(--main);color:#fff}
+button.small{padding:4px 10px;font-size:12.5px}
+button:disabled{opacity:.55;cursor:not-allowed}
+input[type=text],input[type=password],textarea,select{width:100%;font:inherit;border:1px solid var(--line);border-radius:9px;padding:8px 10px;background:#fff;color:var(--ink)}
+label{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.muted{color:var(--muted);font-size:12.5px}
+
+/* the chat */
+.chatbox{background:#fff;border:1px solid var(--line);border-radius:16px;display:flex;flex-direction:column;height:calc(100vh - 100px);min-height:460px}
+#chat{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.msg{padding:9px 13px;border-radius:14px;max-width:85%;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14.5px}
+.msg.me{align-self:flex-end;background:var(--main);color:#fff;border-bottom-right-radius:4px}
+.msg.ai{align-self:flex-start;background:var(--soft);border-bottom-left-radius:4px}
+.msg.bad{align-self:flex-start;background:#fdecec;color:var(--red)}
+.msg img{display:block;max-width:170px;max-height:130px;border-radius:9px;margin-bottom:6px}
+.msg.wait{opacity:.75;font-style:italic}
+.ideas{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.ideas button{font-weight:600;font-size:13px;border-radius:20px;background:var(--soft);border-color:var(--soft)}
+.read{align-self:flex-start;background:#fff8e6;border:1px solid #f1dca0;border-radius:12px;padding:9px 12px;font-size:13px;max-width:85%;white-space:pre-wrap}
+
+/* the input box: + (picture), text, send */
+.composer{border-top:1px solid var(--line);padding:10px 12px}
+#chip{display:flex;align-items:center;gap:8px;margin:0 0 8px 4px}
+#chip img{height:52px;border-radius:8px;border:1px solid var(--line)}
+#chip button{border-radius:50%;width:26px;height:26px;padding:0;line-height:1;color:var(--red)}
+.bar{display:flex;align-items:flex-end;gap:8px;border:1px solid var(--line);border-radius:24px;padding:6px;background:#fafbff}
+.bar.drop{border-color:var(--main);background:var(--soft)}
+.bar textarea{border:0;background:transparent;resize:none;max-height:160px;padding:9px 4px;outline:0}
+.round{width:42px;height:42px;border-radius:50%;padding:0;font-size:24px;line-height:1;flex:0 0 42px;display:flex;align-items:center;justify-content:center}
+#plus{font-weight:400}
+#send{font-size:19px}
+
+/* the preview */
+.side{position:sticky;top:12px}
+canvas{width:100%;aspect-ratio:9/16;border-radius:16px;background:#111;display:block;box-shadow:0 6px 24px rgba(20,25,60,.22)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.row>*{flex:1}
+details{background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin-top:10px}
+summary{cursor:pointer;font-weight:700;font-size:13.5px}
+.slide{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px;background:#fafbff}
+.slide .top{display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:12.5px}
+#status{min-height:20px;font-weight:600;font-size:13px;margin-top:8px;color:var(--green)}
+dialog{border:0;border-radius:16px;padding:20px;max-width:460px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+dialog::backdrop{background:rgba(10,15,40,.5)}
+dialog h2{font-size:17px;margin:0 0 6px}
+@media(max-width:860px){main{grid-template-columns:1fr}.chatbox{height:70vh}.side{position:static;max-width:340px;margin:0 auto;width:100%}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 AI Reel Maker</h1>
+  <button id="clearAll" class="small" style="margin-left:auto" title="Clear the chat, the reel and the picture (your keys stay saved)">🧹 Clear</button>
+  <button id="openKeys" class="small" style="margin-left:0">⚙ Keys</button>
+</header>
+
+<main>
+  <section class="chatbox">
+    <div id="chat"></div>
+    <div class="composer">
+      <div id="chip" hidden><img id="chipImg" alt=""><span class="muted" id="chipName"></span><button id="chipRemove" title="Remove the picture" aria-label="Remove the picture">×</button></div>
+      <div class="bar" id="bar">
+        <button id="plus" class="round" title="Add a picture" aria-label="Add a picture">+</button>
+        <textarea id="prompt" rows="1" placeholder="Describe your reel… e.g. Make a reel from this picture's data"></textarea>
+        <button id="send" class="round primary" title="Send" aria-label="Send">➤</button>
+      </div>
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
+    </div>
+  </section>
+
+  <aside class="side">
+    <canvas id="cv" width="1080" height="1920"></canvas>
+    <div class="row">
+      <button id="play">▶ Play</button>
+      <button id="download" class="primary">⬇ Download video</button>
+    </div>
+    <div class="row">
+      <label style="margin:0"><span class="muted">Colour</span><select id="theme"></select></label>
+      <label style="margin:0"><span class="muted">Background</span><select id="bg"><option value="colour">No picture</option><option value="ai">AI picture</option><option value="own">My picture</option></select></label>
+    </div>
+    <input type="file" id="bgFile" accept="image/jpeg,image/png,image/webp" hidden>
+    <div id="status" aria-live="polite"></div>
+    <details id="captionBox" hidden><summary>Caption for the post</summary>
+      <textarea id="caption" rows="7" style="margin-top:8px"></textarea>
+      <div class="row"><button id="copyCaption" class="small">Copy caption</button></div>
+    </details>
+    <details id="editBox" hidden><summary>✏ Edit the text yourself</summary>
+      <label for="title">Title (first screen)</label><input type="text" id="title" maxlength="80">
+      <div id="slides"></div>
+      <div class="row"><button class="small" id="addSlide">+ Add a slide</button></div>
+      <label for="endText">Last screen</label><input type="text" id="endText" maxlength="50">
+      <label for="endSmall">Last screen, small (your page name or website)</label><input type="text" id="endSmall" maxlength="60">
+    </details>
+  </aside>
+</main>
+
+<dialog id="keys">
+  <h2>Your AI keys</h2>
+  <p class="muted" style="margin:0">Paste the keys you have. The page uses them by itself: Gemini first, then OpenRouter, then Groq if one is busy. They are saved only in this browser, never in the file or on a website.</p>
+  <label for="key">Google Gemini key <span class="muted">(aistudio.google.com — best, reads pictures)</span></label>
+  <input type="password" id="key" autocomplete="off" placeholder="AIza… or AQ.…">
+  <label for="okey">OpenRouter key <span class="muted">(openrouter.ai — free models)</span></label>
+  <input type="password" id="okey" autocomplete="off" placeholder="sk-or-…">
+  <label for="gkey">Groq key <span class="muted">(console.groq.com — very fast)</span></label>
+  <input type="password" id="gkey" autocomplete="off" placeholder="gsk_…">
+  <label for="pkey">Pollinations key <span class="muted">(enter.pollinations.ai — AI background pictures)</span></label>
+  <input type="password" id="pkey" autocomplete="off" placeholder="pk_… or sk_…">
+  <label for="lang">Language of the reel</label>
+  <select id="lang"><option value="auto">Same as my message</option><option value="English">English</option><option value="Gujarati">Gujarati</option><option value="Hindi">Hindi</option></select>
+  <p class="muted">No keys at all? It still works: the page gives you a message to paste into the Gemini app, and you paste the answer back.</p>
+  <div id="keyCheck" class="muted" style="white-space:pre-wrap;margin-top:8px" aria-live="polite"></div>
+  <div class="row"><button id="testKeys">Test keys</button><button id="saveKeys" class="primary">Save</button><button id="closeKeys">Close</button></div>
+</dialog>
+
+<dialog id="manual">
+  <h2>Use the Gemini app (no key)</h2>
+  <p class="muted" style="margin:0 0 6px">1. Copy this message and paste it into Gemini (or ChatGPT).<span id="manualPic" hidden> <b>Attach the same picture there too.</b></span></p>
+  <textarea id="manualAsk" rows="5" readonly></textarea>
+  <div class="row"><button id="manualCopy" class="primary">Copy message</button><button id="manualOpen">Open Gemini</button></div>
+  <label for="manualReply">2. Paste Gemini's whole answer here</label>
+  <textarea id="manualReply" rows="5" placeholder="{ &quot;title&quot;: … }"></textarea>
+  <div class="row"><button id="manualUse" class="primary">Use this answer</button><button id="manualCancel">Cancel</button></div>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var P = 'rm2-';
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(P + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(P + k, JSON.stringify(v)); } catch (e) {} }
+  };
+
+  /* ---------------- state ---------------- */
+  var old = {};   // keys saved by the earlier version of this page
+  try { old = JSON.parse(localStorage.getItem('reel-settings') || '{}') || {}; } catch (e) {}
+  var settings = Object.assign({ key: old.key || '', okey: old.okey || '', gkey: old.gkey || '', pkey: old.pkey || '', lang: old.lang || 'auto', bg: 'colour', theme: 'indigo' }, store.get('settings', {}));
+  var reel = store.get('reel', null);          // { title, slides: [{ heading, points }], read, scene, hashtags, endText, endSmall }
+  var chat = store.get('chat', []);            // [{ who: 'me' | 'ai' | 'bad' | 'read', text }]
+  var picture = null;                          // the picture sent with the next message: { mime, data (base64), url, name }
+  var MAX_SLIDES = 7, MAX_POINTS = 5;
+  // name, background from, background to, accent, text on the accent
+  var THEMES = {
+    indigo: ['Indigo', '#1e1b4b', '#4338ca', '#fbbf24', '#1e1b4b'],
+    night: ['Night', '#0b0f19', '#1f2937', '#38bdf8', '#06202e'],
+    green: ['Green', '#052e16', '#15803d', '#fde047', '#052e16'],
+    sunset: ['Sunset', '#7c2d12', '#db2777', '#fff7ed', '#7c2d12'],
+    purple: ['Purple', '#2e1065', '#7e22ce', '#f0abfc', '#2e1065'],
+    light: ['Light', '#f8fafc', '#e2e8f0', '#4f46e5', '#ffffff']
+  };
+  function theme() { return THEMES[settings.theme] || THEMES.indigo; }
+  // The picture behind a screen: "my picture" = the same one everywhere; "AI picture" = the one made for that slide
+  // (the first screen's picture also for the last screen, and while a slide's own picture is still being made)
+  function sceneOf(slide) { return slide ? (slide.scene || slide.heading) : (reel ? reel.scene || reel.title : ''); }
+  function pictureFor(slide) {
+    if (settings.bg === 'own') return bgImg;
+    if (settings.bg !== 'ai' || !reel) return null;
+    return pics[sceneOf(slide)] || pics[sceneOf(null)] || null;
+  }
+  function usePicture() { return settings.bg !== 'colour' && (settings.bg === 'own' ? !!bgImg : Object.keys(pics).length > 0); }
+  function ink() { return settings.theme === 'light' && !usePicture() ? '#0f172a' : '#ffffff'; }
+
+  /* ---------------- the AI ---------------- */
+  var SYSTEM = [
+    'You write the text of a short, professional vertical video (reel) for social media marketing (Instagram, Facebook, YouTube Shorts), and you change it when the user asks.',
+    'Reply with JSON only:',
+    '{"reply": "one short sentence for the user: what you made or changed",',
+    ' "read": "only when a picture is attached: what you read or see in it that matters, one item per line; otherwise empty",',
+    ' "title": "a strong short hook for the first screen, max 60 characters",',
+    ' "slides": [{"heading": "max 40 characters", "points": ["max 80 characters", "..."], "picture": "one line in English: a realistic marketing photo that shows what THIS slide is about (people, place, objects, mood, light)"}],',
+    ' "end": "a short call to action for the last screen, max 40 characters",',
+    ' "hashtags": ["5 to 8 fitting hashtags without the # sign"],',
+    ' "picture": "one line in English: a realistic marketing photo for the first screen that shows what the whole reel is about"}',
+    'Rules:',
+    '- 3 to 5 slides unless the user asks otherwise (never more than 7); 2 to 5 points on a slide.',
+    '- Follow the user\'s message. Use the facts and figures the user gives or that are in the attached picture exactly as they are; never invent a number, a date, a name, a price or an offer.',
+    '- From a picture: copy numbers and names exactly as printed; leave out what you cannot read clearly.',
+    '- When a current reel is given, change only what the message asks and return the whole reel again.',
+    '- Short, clear, lively sentences for a phone screen. No hashtags, links or emojis inside the slides.',
+    '- Every "picture" is a photo idea for an advertisement: it matches the slide\'s message (for example a happy retired couple for a pension slide, a doctor with a patient for a health slide), fits the people the product is for, and has no text, words, numbers or logos in it. If the user says what pictures they want, follow that.'
+  ].join('\n');
+
+  function promptText(message) {
+    var language = settings.lang === 'auto' ? 'the language of the user\'s message (keep the language of the current reel unless asked to change it)' : settings.lang;
+    return (reel ? 'The current reel (JSON):\n' + JSON.stringify({ title: reel.title, slides: reel.slides, end: reel.endText }) + '\n\nThe user\'s message:\n' : 'The user\'s request for a new reel:\n') + message
+      + (picture ? '\n\nA picture is attached: use what it shows as the message asks, and list what you read in "read".' : '')
+      + '\n\nWrite the reel in ' + language + '.';
+  }
+
+  // Every key the owner saved is used: Gemini first (best with pictures), then OpenRouter, then Groq. No key: the Gemini app.
+  var used = '', asking = '';
+  // fetch with a time limit: an AI that does not answer must never leave the page waiting for ever
+  function fetchT(url, options, seconds) {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = ctrl && setTimeout(function () { ctrl.abort(); }, seconds * 1000);
+    return fetch(url, Object.assign({}, options || {}, ctrl ? { signal: ctrl.signal } : {}))
+      .then(function (r) { clearTimeout(timer); return r; }, function (e) { clearTimeout(timer); throw e; });
+  }
+  function netError(name) {
+    return function (e) { throw new Error(e && e.name === 'AbortError' ? name + ' took too long to answer.' : 'Could not reach ' + name + ' (check the internet connection).'); };
+  }
+
+  function askAI(message) {
+    var list = [];
+    if (settings.key) list.push(['Gemini', askGemini]);
+    if (settings.okey) list.push(['OpenRouter', function (m) { return askOpenAI('OpenRouter', 'https://openrouter.ai/api/v1/chat/completions', settings.okey, openRouterModels(), m); }]);
+    if (settings.gkey) list.push(['Groq', function (m) { return askOpenAI('Groq', 'https://api.groq.com/openai/v1/chat/completions', settings.gkey, groqModels(), m); }]);
+    if (!list.length) {
+      used = 'Gemini app';
+      return askManual(message).then(function (out) {
+        var data = readAnswer(out);
+        if (!data) throw new Error('This answer could not be read. Copy Gemini\'s whole answer (it starts with {) and paste it again.');
+        return data;
+      });
+    }
+    var errors = [];
+    function next(i) {
+      if (i >= list.length) return Promise.reject(new Error(errors.join('\n')));
+      asking = list[i][0];
+      return list[i][1](message).then(function (out) {
+        var data = readAnswer(out);
+        if (!data) {   // an answer in another shape: try the next AI
+          console.warn(list[i][0] + ' answer that could not be read:', out);
+          throw new Error(list[i][0] + ' answered, but not in the reel format (' + String(out).replace(/\s+/g, ' ').slice(0, 90) + '…).');
+        }
+        used = list[i][0];
+        return data;
+      }).catch(function (e) { errors.push(e.message); return next(i + 1); });
+    }
+    return next(0);
+  }
+
+  // The reel out of an AI answer, whatever shape it comes in: plain JSON, inside ```json ... ```, after some words or
+  // "thinking", as a list [ {...} ], with a comma too many... null when there is no reel in it
+  function readAnswer(out) {
+    var text = String(out == null ? '' : out).replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```(?:json)?/gi, '').trim();
+    var isReel = function (d) {
+      if (Array.isArray(d)) d = d.filter(function (x) { return x && typeof x === 'object' && Array.isArray(x.slides); })[0];
+      if (d && typeof d === 'object' && !Array.isArray(d.slides) && d.reel && typeof d.reel === 'object') d = d.reel;   // { "reel": { ... } }
+      return d && typeof d === 'object' && Array.isArray(d.slides) ? d : null;
+    };
+    var tryParse = function (s) {
+      try { return isReel(JSON.parse(s)); } catch (e) {}
+      try { return isReel(JSON.parse(s.replace(/,\s*([}\]])/g, '$1'))); } catch (e) {}   // a comma too many
+      return null;
+    };
+    var found = tryParse(text);
+    if (found) return found;
+    // every { ... } in the text, the outer ones first, until one is a reel
+    for (var start = text.indexOf('{'); start > -1; start = text.indexOf('{', start + 1)) {
+      var depth = 0, inString = false, escaped = false;
+      for (var i = start; i < text.length; i++) {
+        var ch = text[i];
+        if (inString) { if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') inString = false; continue; }
+        if (ch === '"') inString = true;
+        else if (ch === '{') depth++;
+        else if (ch === '}' && --depth === 0) { found = tryParse(text.slice(start, i + 1)); break; }
+      }
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function askGemini(message) {
+    var parts = [{ text: promptText(message) }];
+    if (picture) parts.unshift({ inline_data: { mime_type: picture.mime, data: picture.data } });
+    // No "thinking" on the 2.5 models: the reel text does not need it, and the answer comes several times faster
+    var body = function (model) {
+      var config = { temperature: 0.6, maxOutputTokens: 8192, responseMimeType: 'application/json' };
+      if (/^gemini-2\.5-flash/.test(model)) config.thinkingConfig = { thinkingBudget: 0 };
+      return JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: 'user', parts: parts }], generationConfig: config });
+    };
+    var models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-lite-latest'];
+    function tryModel(i, firstError) {
+      if (i >= models.length) return Promise.reject(firstError || new Error('Gemini is busy right now.'));
+      return fetchT('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.key }, body: body(models[i])
+      }, 70).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (json) {
+          if (r.ok) {
+            var out = ((((json.candidates || [])[0] || {}).content || {}).parts || []).filter(function (p) { return !p.thought; }).map(function (p) { return p.text || ''; }).join('').trim();
+            if (out) return out;
+            throw Object.assign(new Error('Gemini sent an empty reply.'), { retry: true });
+          }
+          var detail = (json.error && json.error.message) || ('HTTP ' + r.status);
+          var message = (r.status === 400 && /api key/i.test(detail)) || r.status === 401 || r.status === 403 ? 'Gemini did not accept the key: ' + keyHint('Gemini', detail)
+            : r.status === 429 ? 'Gemini limit reached for now.' : 'Gemini could not do this (' + detail + ').';
+          throw Object.assign(new Error(message), { retry: r.status === 404 || r.status >= 500 || (r.status === 400 && /model|thinking/i.test(detail)) });
+        });
+      }, netError('Gemini'))
+        .catch(function (e) { if (e.retry) return tryModel(i + 1, firstError || e); throw e; });
+    }
+    return tryModel(0, null);
+  }
+
+  // OpenRouter's free models change often: the current list is read, the best-known ones first, ones that read pictures when needed
+  function openRouterModels() {
+    var liked = ['google/gemma-4-31b-it:free', 'google/gemma-4-26b-a4b-it:free', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'meta-llama/llama-3.3-70b-instruct:free', 'deepseek/deepseek-chat-v3-0324:free'];
+    return fetchT('https://openrouter.ai/api/v1/models', {}, 15).then(function (r) { return r.json(); }).then(function (j) {
+      var free = (j.data || []).filter(function (m) { return /:free$/.test(m.id) && (!picture || /image/.test(JSON.stringify((m.architecture || {}).input_modalities || (m.architecture || {}).modality || ''))); }).map(function (m) { return m.id; });
+      var list = liked.filter(function (id) { return free.indexOf(id) > -1; }).concat(free.filter(function (id) { return liked.indexOf(id) < 0; }));
+      if (!list.length) throw new Error('OpenRouter has no free model' + (picture ? ' that reads pictures' : '') + ' right now.');
+      return list.slice(0, 4);
+    }, function () { return liked.slice(0, 3); });
+  }
+
+  // Groq's models also change: its live list (for this key) is read; with a picture only models that read pictures
+  function groqModels() {
+    var forPictures = ['qwen/qwen3.8-27b', 'qwen/qwen3.6-27b', 'meta-models/muse-spark-open', 'qwen/qwen3-vl-32b-instruct', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'];
+    var forText = ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'qwen/qwen3.6-27b', 'llama-3.1-8b-instant'];
+    return fetchT('https://api.groq.com/openai/v1/models', { headers: { Authorization: 'Bearer ' + settings.gkey } }, 15)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var have = (j.data || []).map(function (m) { return m.id; });
+        if (!have.length) return picture ? forPictures.slice(0, 3) : forText.slice(0, 3);
+        var liked = (picture ? forPictures : forText).filter(function (id) { return have.indexOf(id) > -1; });
+        var guess = have.filter(function (id) {
+          if (liked.indexOf(id) > -1 || /whisper|tts|guard|orpheus|compound|prompt-guard/i.test(id)) return false;
+          return picture ? /vl|vision|llama-4|muse|qwen3\.[6-9]/i.test(id) : true;
+        });
+        var list = liked.concat(guess);
+        if (!list.length) throw new Error(picture ? 'Groq has no model that reads pictures for this key right now.' : 'Groq has no usable model for this key right now.');
+        return list.slice(0, 4);
+      }, function () { return picture ? forPictures.slice(0, 3) : forText.slice(0, 3); });
+  }
+
+  // Groq and OpenRouter use the same request format (OpenAI style)
+  function askOpenAI(name, url, key, models, message) {
+    var text = promptText(message);
+    var content = picture ? [{ type: 'text', text: text }, { type: 'image_url', image_url: { url: 'data:' + picture.mime + ';base64,' + picture.data } }] : text;
+    return models.then(function (list) {
+      function tryModel(i, firstError) {
+        if (i >= list.length) return Promise.reject(firstError || new Error(name + ' is busy right now.'));
+        return fetchT(url, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+          body: JSON.stringify({ model: list[i], temperature: 0.6, max_tokens: 4000, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: content }] })
+        }, 60).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (json) {
+            var out = (((json.choices || [])[0] || {}).message || {}).content;
+            if (r.ok && out) return String(out).trim();
+            var detail = (json.error && (json.error.message || json.error)) || ('HTTP ' + r.status);
+            if (r.status === 401 || r.status === 403) throw new Error(name + ' did not accept the key: ' + keyHint(name, String(detail)));
+            throw Object.assign(new Error(r.status === 429 ? name + ' limit reached for now.' : name + ' could not do this (' + detail + ').'), { retry: true });
+          });
+        }, netError(name))
+          .catch(function (e) { if (e.retry) return tryModel(i + 1, firstError || e); throw e; });
+      }
+      return tryModel(0, null);
+    });
+  }
+
+  // No key: the owner pastes the message into the Gemini app (or ChatGPT) and pastes its answer back
+  var manualWait = null;
+  function askManual(message) {
+    $('manualAsk').value = SYSTEM + '\n\n' + promptText(message);
+    $('manualReply').value = '';
+    $('manualPic').hidden = !picture;
+    $('manual').showModal();
+    return new Promise(function (resolve, reject) { manualWait = { resolve: resolve, reject: reject }; });
+  }
+
+  // The AI's reply as a clean reel (plain text, sizes kept short)
+  function plain(v, max) { return String(v == null ? '' : v).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, max); }
+  function clean(data) {
+    var slides = [];
+    (Array.isArray(data.slides) ? data.slides : []).slice(0, MAX_SLIDES).forEach(function (s) {
+      if (!s || typeof s !== 'object') return;
+      var heading = plain(s.heading, 48);
+      var points = (Array.isArray(s.points) ? s.points : []).map(function (p) { return plain(p, 110); }).filter(Boolean).slice(0, MAX_POINTS);
+      if (heading && points.length) slides.push({ heading: heading, points: points, scene: plain(s.picture, 300) });
+    });
+    var tags = (Array.isArray(data.hashtags) ? data.hashtags : []).map(function (t) { return String(t).replace(/[^\p{L}\p{M}\p{N}_]+/gu, ''); }).filter(Boolean).slice(0, 8);
+    return {
+      reel: { title: plain(data.title, 80) || (slides[0] ? slides[0].heading : 'My reel'), slides: slides, endText: plain(data.end, 50),
+        read: String(data.read == null ? '' : data.read).replace(/<[^>]*>/g, '').replace(/\n{2,}/g, '\n').trim().slice(0, 3000),
+        scene: plain(data.picture, 300), hashtags: tags },
+      reply: plain(data.reply, 300)
+    };
+  }
+
+  /* ---------------- chat ---------------- */
+  function say(who, text, img) { chat.push({ who: who, text: text, img: img || '' }); if (chat.length > 40) chat = chat.slice(-40); saveChat(); showChat(); }
+  function saveChat() { store.set('chat', chat.map(function (m) { return { who: m.who, text: m.text }; })); }   // pictures are not kept (too big)
+  function showChat(waiting) {
+    var box = $('chat'); box.textContent = '';
+    if (!chat.length) {
+      var hi = document.createElement('div'); hi.className = 'msg ai';
+      hi.textContent = 'Hi! Tell me what your reel should say. Press + to add a picture (a poster, a table, a chart, a product photo) and I will use what it shows.';
+      box.appendChild(hi);
+      var ideas = document.createElement('div'); ideas.className = 'ideas';
+      ['Make a reel from this picture\'s data', 'Make a marketing reel about the benefits shown in this picture', '5 tips to save money every month'].forEach(function (t) {
+        var b = document.createElement('button'); b.textContent = t; b.addEventListener('click', function () { $('prompt').value = t; grow(); $('prompt').focus(); }); ideas.appendChild(b);
+      });
+      box.appendChild(ideas);
+    }
+    chat.forEach(function (m) {
+      var d = document.createElement('div'); d.className = m.who === 'read' ? 'read' : 'msg ' + m.who;
+      if (m.img) { var im = document.createElement('img'); im.src = m.img; im.alt = ''; d.appendChild(im); }
+      d.appendChild(document.createTextNode(m.text)); box.appendChild(d);
+    });
+    if (waiting) { var w = document.createElement('div'); w.className = 'msg ai wait'; w.id = 'waitMsg'; w.textContent = 'Making your reel…'; box.appendChild(w); }
+    box.scrollTop = box.scrollHeight;
+  }
+
+  var busy = false;
+  function send() {
+    var message = $('prompt').value.trim();
+    if (busy) return;
+    if (!message && picture) message = 'Make a reel from this picture\'s data';
+    if (message.length < 3) { $('prompt').focus(); return; }
+    var hadPicture = picture;
+    say('me', message, picture && picture.url);
+    $('prompt').value = ''; grow();
+    busy = true; $('send').disabled = true; asking = ''; showChat(true);
+    // which AI is working, and for how long
+    var started = Date.now(), ticker = setInterval(function () {
+      var w = $('waitMsg'); if (!w) return;
+      w.textContent = 'Making your reel…' + (asking ? ' asking ' + asking : '') + ' (' + Math.round((Date.now() - started) / 1000) + ' s)';
+    }, 1000);
+    askAI(message).then(function (data) {
+      var result = clean(data), next = result.reel;
+      if (!next.slides.length) throw new Error('The AI could not make slides from this. Write a little more and try again.');
+      if (reel) {   // a change keeps what the owner set before and what the AI left out
+        if (!hadPicture) next.read = '';
+        next.scene = next.scene || reel.scene || '';
+        next.hashtags = next.hashtags.length ? next.hashtags : (reel.hashtags || []);
+        next.endText = next.endText || reel.endText || '';
+        next.endSmall = reel.endSmall || '';
+      }
+      next.endText = next.endText || 'Follow for more';
+      next.endSmall = next.endSmall || store.get('endSmall', '');
+      reel = next; store.set('reel', reel);
+      setPicture(null);
+      say('ai', (result.reply || 'Your reel is ready.') + ' Press ▶ Play to watch it, ⬇ Download video to save it.' + (used ? ' (' + used + ')' : ''));
+      if (next.read) say('read', 'Read from your picture, please check:\n' + next.read);
+      showReel(); time = 0; draw();
+      if (settings.bg === 'ai') aiPictures(false);
+    }).catch(function (e) { showChat(); say('bad', e.message || 'Something went wrong. Please try again.'); })
+      .then(function () { clearInterval(ticker); busy = false; $('send').disabled = false; });
+  }
+
+  /* ---------------- the picture sent with a message ---------------- */
+  function setPicture(p) {
+    picture = p; $('file').value = '';
+    $('chip').hidden = !p;
+    if (p) { $('chipImg').src = p.url; $('chipName').textContent = p.name; }
+  }
+  // Big photos are made smaller first (2000 px on the long side is plenty to read a poster or a table)
+  function loadPicture(file) {
+    if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type)) { say('bad', 'The picture must be a JPG, PNG or WebP file.'); return; }
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      var k = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+      var c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      var small = c.toDataURL('image/jpeg', 0.9);
+      setPicture({ mime: 'image/jpeg', data: small.split(',')[1], url: small, name: file.name || 'picture' });
+      $('prompt').focus();
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); say('bad', 'This picture could not be opened.'); };
+    img.src = url;
+  }
+
+  /* ---------------- editing by hand (optional) ---------------- */
+  function field(labelText, value, onInput, rows, max) {
+    var wrap = document.createElement('div'), l = document.createElement('label'), el = document.createElement(rows ? 'textarea' : 'input');
+    l.textContent = labelText; if (rows) el.rows = rows; else el.type = 'text'; if (max) el.maxLength = max;
+    el.value = value; el.addEventListener('input', function () { onInput(el.value); saveAndDraw(); });
+    wrap.appendChild(l); wrap.appendChild(el); return wrap;
+  }
+  function showReel() {
+    $('editBox').hidden = $('captionBox').hidden = !reel;
+    if (!reel) return;
+    $('title').value = reel.title; $('endText').value = reel.endText || ''; $('endSmall').value = reel.endSmall || '';
+    var box = $('slides'); box.textContent = '';
+    reel.slides.forEach(function (s, i) {
+      var d = document.createElement('div'); d.className = 'slide';
+      var top = document.createElement('div'); top.className = 'top';
+      var name = document.createElement('span'); name.textContent = 'Slide ' + (i + 1);
+      var del = document.createElement('button'); del.className = 'small'; del.style.color = 'var(--red)'; del.textContent = 'Delete';
+      del.addEventListener('click', function () { reel.slides.splice(i, 1); showReel(); saveAndDraw(); });
+      top.appendChild(name); top.appendChild(del); d.appendChild(top);
+      d.appendChild(field('Heading', s.heading, function (v) { s.heading = v.trim(); }, 0, 48));
+      d.appendChild(field('Points (one on each line)', s.points.join('\n'), function (v) {
+        s.points = v.split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean).slice(0, MAX_POINTS);
+      }, 4, 700));
+      d.appendChild(pictureIdea(s));
+      box.appendChild(d);
+    });
+    // the first screen's picture idea, above the slides
+    var cover = document.createElement('div'); cover.className = 'slide';
+    cover.appendChild(pictureIdea(null));
+    box.insertBefore(cover, box.firstChild);
+    $('addSlide').disabled = reel.slides.length >= MAX_SLIDES;
+    caption();
+  }
+  // "Picture idea" box + a button that makes a new AI picture for that screen (slide = null: the first screen)
+  function pictureIdea(slide) {
+    var wrap = field(slide ? 'Picture idea (AI picture for this slide)' : 'Picture idea for the first and last screen', slide ? (slide.scene || '') : (reel.scene || ''), function (v) {
+      if (slide) slide.scene = v.trim(); else reel.scene = v.trim();
+    }, 2, 300);
+    var b = document.createElement('button'); b.className = 'small'; b.style.marginTop = '6px'; b.textContent = '🔄 New AI picture';
+    b.addEventListener('click', function () {
+      if (settings.bg !== 'ai') { settings.bg = 'ai'; $('bg').value = 'ai'; store.set('settings', settings); }
+      var idea = sceneOf(slide); delete pics[idea];
+      time = slide ? segStart(slide) + 0.6 : 0.6; aiPictures(true, idea);
+    });
+    wrap.appendChild(b);
+    return wrap;
+  }
+  function segStart(slide) {
+    var t = 0, list = segments();
+    for (var i = 0; i < list.length; i++) { if (list[i].slide === slide) return t; t += list[i].seconds; }
+    return 0;
+  }
+  function caption() {
+    if (!reel) return;
+    var lines = reel.slides.map(function (s) { return '✅ ' + s.heading; });
+    var tags = (reel.hashtags || []).map(function (t) { return '#' + t; }).join(' ');
+    $('caption').value = [reel.title, '', lines.join('\n'), '', reel.endText ? '👉 ' + reel.endText : '', '', tags].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function saveAndDraw() { store.set('reel', reel); caption(); if (!playing) { time = Math.min(time, total()); draw(); } }
+
+  /* ---------------- the reel on the canvas (1080 x 1920) ---------------- */
+  var cv = $('cv'), g = cv.getContext('2d'), W = 1080, H = 1920;
+  var FONT = 'Inter, "Noto Sans Gujarati", "Noto Sans Devanagari", "Nirmala UI", "Segoe UI", sans-serif';
+  var time = 0, playing = false, bgImg = null;
+
+  function segments() {
+    var list = [{ kind: 'cover', seconds: 3 }];
+    (reel ? reel.slides : []).forEach(function (s) { list.push({ kind: 'points', slide: s, seconds: Math.min(9, 3 + 1.2 * s.points.length) }); });
+    list.push({ kind: 'end', seconds: 3.5 });
+    return list;
+  }
+  function total() { return segments().reduce(function (a, s) { return a + s.seconds; }, 0); }
+  function font(size, weight) { g.font = (weight || 700) + ' ' + size + 'px ' + FONT; }
+  function wrap(text, maxWidth) {
+    var out = [], line = '';
+    String(text).split(/\s+/).forEach(function (word) {
+      var tryLine = line ? line + ' ' + word : word;
+      if (g.measureText(tryLine).width <= maxWidth || !line) line = tryLine; else { out.push(line); line = word; }
+    });
+    if (line) out.push(line);
+    return out;
+  }
+  // Text in a box: the biggest size (from `size` down to `min`) whose lines fit in `maxLines`
+  function fit(text, maxWidth, size, min, maxLines, weight) {
+    var lines;
+    for (; size >= min; size -= 2) { font(size, weight); lines = wrap(text, maxWidth); if (lines.length <= maxLines) break; }
+    return { size: Math.max(size, min), lines: lines.slice(0, maxLines) };
+  }
+  function rounded(x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+  var ease = function (x) { x = Math.max(0, Math.min(1, x)); return 1 - Math.pow(1 - x, 3); };
+
+  // `progress` (0..1) of the screen: the picture zooms in slowly, as in a professional reel
+  function background(img, progress) {
+    var th = theme(), grad = g.createLinearGradient(0, 0, W, H); grad.addColorStop(0, th[1]); grad.addColorStop(1, th[2]);
+    g.globalAlpha = 1; g.fillStyle = grad; g.fillRect(0, 0, W, H);
+    if (img) {
+      // the picture fills the screen (cut at the sides, never stretched); darker at the top and bottom where the words are
+      var zoom = 1 + 0.08 * Math.max(0, Math.min(1, progress || 0));
+      var k = Math.max(W / img.width, H / img.height) * zoom, pw = img.width * k, ph = img.height * k;
+      g.drawImage(img, (W - pw) / 2, (H - ph) / 2, pw, ph);
+      var shade = g.createLinearGradient(0, 0, 0, H); shade.addColorStop(0, 'rgba(0,0,0,.62)'); shade.addColorStop(0.45, 'rgba(0,0,0,.30)'); shade.addColorStop(1, 'rgba(0,0,0,.70)');
+      g.fillStyle = shade; g.fillRect(0, 0, W, H);
+    } else {
+      g.globalAlpha = 0.10; g.fillStyle = th[3];
+      g.beginPath(); g.arc(W + 60, 240, 420, 0, 7); g.fill();
+      g.beginPath(); g.arc(-110, H - 330, 380, 0, 7); g.fill();
+      g.globalAlpha = 1;
+    }
+  }
+
+  function draw() {
+    var t = time, list = segments(), seg = list[list.length - 1], local = seg.seconds, index = list.length - 1;
+    for (var i = 0; i < list.length; i++) { if (t < list[i].seconds) { seg = list[i]; local = t; index = i; break; } t -= list[i].seconds; }
+    var img = pictureFor(seg.slide || null);
+    background(img, local / seg.seconds);
+    var th = theme(), text = ink(), soft = img ? 'rgba(0,0,0,.50)' : text === '#ffffff' ? 'rgba(255,255,255,.12)' : 'rgba(15,23,42,.07)';
+    // on a photo the words get a soft shadow, so they stay sharp on light parts of the picture
+    g.shadowColor = img ? 'rgba(0,0,0,.55)' : 'transparent'; g.shadowBlur = img ? 14 : 0;
+    var inA = ease(local / 0.45), shift = (1 - inA) * 60;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+
+    if (seg.kind === 'cover') {
+      var title = reel ? reel.title : 'Your reel appears here';
+      var f = fit(title, W - 160, 100, 56, 5, 900), lh = f.size * 1.22, y = 930 - (f.lines.length - 1) * lh / 2 + shift;
+      g.globalAlpha = inA; g.fillStyle = text; font(f.size, 900);
+      f.lines.forEach(function (line, i) { g.fillText(line, W / 2, y + i * lh); });
+      g.fillStyle = th[3]; g.fillRect(W / 2 - 120 * inA, y + f.lines.length * lh - lh / 2 + 36, 240 * inA, 10);
+      if (!reel) { g.globalAlpha = 0.75; font(36, 500); g.fillStyle = text; g.fillText('Type your idea and press ➤', W / 2, y + lh + 120); }
+    } else if (seg.kind === 'points') {
+      var s = seg.slide, hf = fit(s.heading, W - 220, 66, 40, 2, 800), hh = 64 + hf.lines.length * hf.size * 1.2;
+      g.globalAlpha = inA; g.fillStyle = th[3]; rounded(70, 190 + shift, W - 140, hh, 24); g.fill();
+      g.fillStyle = th[4]; font(hf.size, 800);
+      hf.lines.forEach(function (line, i) { g.fillText(line, W / 2, 222 + shift + hf.size * 0.6 + i * hf.size * 1.2); });
+      var top = 190 + hh + 80, room = H - 170 - top;
+      // one size for all points so that the whole list fits
+      var size = 58, blocks, height = function () { return blocks.reduce(function (a, b) { return a + b.length * size * 1.3 + 46; }, 0); };
+      for (; size >= 34; size -= 2) { font(size, 600); blocks = s.points.map(function (p) { return wrap(p, W - 300); }); if (height() <= room) break; }
+      var py = top + Math.max(0, (room - height()) * 0.4);   // a short list sits near the middle, not at the top
+      blocks.forEach(function (lines, i) {
+        var a = ease((local - 0.5 - i * 0.9) / 0.5), bh = lines.length * size * 1.3, x = 80 + (1 - a) * 80;
+        g.globalAlpha = a;
+        g.fillStyle = soft; rounded(x - 10, py - 12, W - 140, bh + 24, 22); g.fill();
+        g.fillStyle = th[3]; g.beginPath(); g.arc(x + 46, py + size * 0.65, 34, 0, 7); g.fill();
+        g.fillStyle = th[4]; font(36, 900); g.textAlign = 'center'; g.fillText(String(i + 1), x + 46, py + size * 0.65 + 2);
+        g.fillStyle = text; font(size, 600); g.textAlign = 'left';
+        lines.forEach(function (line, j) { g.fillText(line, x + 110, py + size * 0.65 + j * size * 1.3); });
+        py += bh + 46;
+      });
+      g.globalAlpha = 0.6; g.fillStyle = text; g.textAlign = 'center'; font(30, 600); g.fillText(index + ' / ' + (list.length - 2), W / 2, H - 100);
+    } else {
+      var big = (reel && reel.endText) || 'Follow for more', small = (reel && reel.endSmall) || '';
+      var bf = fit(big, W - 200, 96, 52, 3, 900), blh = bf.size * 1.2, by = 900 - (bf.lines.length - 1) * blh / 2 + shift;
+      g.globalAlpha = inA; g.fillStyle = text; font(bf.size, 900);
+      bf.lines.forEach(function (line, i) { g.fillText(line, W / 2, by + i * blh); });
+      if (small) {
+        var sf = fit(small, W - 260, 56, 32, 1, 800), sy = by + bf.lines.length * blh + 40;
+        g.fillStyle = th[3]; rounded(110, sy, W - 220, 120, 60); g.fill();
+        g.fillStyle = th[4]; font(sf.size, 800); g.fillText(sf.lines[0], W / 2, sy + 62);
+      }
+    }
+    g.globalAlpha = 1; g.shadowBlur = 0; g.shadowColor = 'transparent';
+    g.fillStyle = soft; g.fillRect(0, H - 12, W, 12);
+    g.fillStyle = th[3]; g.fillRect(0, H - 12, W * Math.min(1, time / total()), 12);
+  }
+
+  // Plays from the start; resolves when the last screen is over. Drawn on a 30-a-second timer, not on screen
+  // refreshes: the browser can pause screen refreshes, and then the video would come out empty
+  function play() {
+    return new Promise(function (resolve) {
+      var start = performance.now(), end = total();
+      playing = true; $('play').textContent = '■ Stop';
+      (function step() {
+        time = Math.min(end, (performance.now() - start) / 1000); draw();
+        if (time < end && playing) setTimeout(step, 1000 / 30); else { playing = false; $('play').textContent = '▶ Play'; resolve(); }
+      })();
+    });
+  }
+
+  function status(text, bad) { $('status').textContent = text; $('status').style.color = bad ? 'var(--red)' : 'var(--green)'; }
+  function makeVideo() {
+    if (!reel) { status('Make a reel first: type your idea and press ➤.', true); return; }
+    var type = cv.captureStream && window.MediaRecorder && ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0];
+    if (!type) { status('This browser cannot make videos. Use Chrome or Edge.', true); return; }
+    var stream = cv.captureStream(30), rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6000000 }), chunks = [];
+    rec.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+    rec.onstop = function () {
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      var ext = type.indexOf('mp4') > -1 ? 'mp4' : 'webm', a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(chunks, { type: type.split(';')[0] }));
+      a.download = (reel.title.replace(/[^\p{L}\p{M}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'reel') + '.' + ext;
+      document.body.appendChild(a); a.click(); a.remove();
+      status('Video saved to Downloads (' + ext.toUpperCase() + '). Add music in Instagram / Facebook when you post.' + (ext === 'webm' ? ' Instagram needs MP4: use the newest Chrome or Edge.' : ''));
+      $('download').disabled = $('play').disabled = false;
+    };
+    $('download').disabled = $('play').disabled = true;
+    status('Making the video… keep this tab open and in front (' + Math.round(total()) + ' seconds).');
+    rec.start();
+    play().then(function () { setTimeout(function () { rec.stop(); }, 250); });
+  }
+
+  /* ---------------- background picture: a free AI picture, or your own ---------------- */
+  // Kept small (720 x 1280) so it can be remembered in this browser
+  function useBackground(source) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(source), img = new Image();
+      img.onload = function () {
+        var c = document.createElement('canvas'); c.width = 720; c.height = 1280;
+        var k = Math.max(720 / img.naturalWidth, 1280 / img.naturalHeight), w = img.naturalWidth * k, h = img.naturalHeight * k;
+        c.getContext('2d').drawImage(img, (720 - w) / 2, (1280 - h) / 2, w, h);
+        URL.revokeObjectURL(url);
+        bgImg = c;
+        try { localStorage.setItem(P + 'bgimg', c.toDataURL('image/jpeg', 0.82)); } catch (e) {}
+        draw(); resolve();
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('This picture could not be opened.')); };
+      img.src = url;
+    });
+  }
+  /* ---------------- AI pictures: one for the first screen and one for every slide ---------------- */
+  var pics = {};   // picture idea -> picture (720 x 1280), so a picture is made only once for the same idea
+  var making = false;
+  // One AI picture for one idea (a photo for an advertisement, without any words in it)
+  function aiPicture(scene) {
+    var prompt = scene + ', professional advertising photo, vertical 9:16, natural light, sharp, high detail, no text, no words, no letters, no numbers, no logos, no watermark';
+    var base = 'https://gen.pollinations.ai/image/' + encodeURIComponent(prompt) + '?width=720&height=1280&nologo=true&seed=' + Math.floor(Math.random() * 999999999);
+    return fetchT(base, { headers: { Authorization: 'Bearer ' + settings.pkey } }, 120)
+      .catch(function (e) { if (e && e.name === 'AbortError') throw e; return fetchT(base + '&key=' + encodeURIComponent(settings.pkey), {}, 120); })   // browsers that refuse the header
+      .then(function (r) {
+        if (r.ok && /^image\//.test(r.headers.get('Content-Type') || '')) return r.blob();
+        throw new Error(r.status === 401 || r.status === 403 ? 'Pollinations did not accept the key (check it in ⚙ Keys).'
+          : r.status === 402 || r.status === 429 ? 'The free AI pictures are at their limit right now. Try again in a minute.'
+          : 'The AI picture service is busy right now. Try again in a minute.');
+      }, netError('the AI picture service'))
+      .then(toCanvas);
+  }
+  function toCanvas(blob) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(blob), img = new Image();
+      img.onload = function () {
+        var c = document.createElement('canvas'); c.width = 720; c.height = 1280;
+        var k = Math.max(720 / img.naturalWidth, 1280 / img.naturalHeight), w = img.naturalWidth * k, h = img.naturalHeight * k;
+        c.getContext('2d').drawImage(img, (720 - w) / 2, (1280 - h) / 2, w, h);
+        URL.revokeObjectURL(url); resolve(c);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('A picture could not be opened.')); };
+      img.src = url;
+    });
+  }
+  // The pictures of this reel, kept in this browser (only the ones the reel still uses)
+  function savePics() {
+    var keep = {};
+    if (reel) [sceneOf(null)].concat(reel.slides.map(sceneOf)).forEach(function (s) { if (pics[s]) keep[s] = pics[s].toDataURL('image/jpeg', 0.8); });
+    try { localStorage.setItem(P + 'pics', JSON.stringify(keep)); } catch (e) { try { localStorage.removeItem(P + 'pics'); } catch (x) {} }
+  }
+  // Makes the pictures that are missing (all of them again with `fresh`), one after the other, the preview showing each as it comes
+  function aiPictures(fresh, only) {
+    if (!reel) { status('Make a reel first, then choose AI picture.', true); return; }
+    if (!settings.pkey) { status('AI pictures need the Pollinations key (⚙ Keys).', true); openKeys(); $('pkey').focus(); return; }
+    if (making) return;
+    var ideas = only ? [only] : [sceneOf(null)].concat(reel.slides.map(sceneOf));
+    ideas = ideas.filter(function (s, i) { return s && ideas.indexOf(s) === i && (fresh || !pics[s]); });
+    if (!ideas.length) { draw(); return; }
+    making = true;
+    var done = 0;
+    (function next() {
+      if (done >= ideas.length) { making = false; savePics(); status(ideas.length === 1 ? 'New AI picture added.' : 'AI pictures added: one for each slide. Press ▶ Play.'); showReel(); return; }
+      status('Making AI pictures… ' + (done + 1) + ' / ' + ideas.length + ' (about 10–30 seconds each)');
+      aiPicture(ideas[done]).then(function (c) { pics[ideas[done]] = c; done++; draw(); next(); },
+        function (e) { making = false; savePics(); status(e.message + (done ? ' (' + done + ' of ' + ideas.length + ' pictures made)' : ''), true); });
+    })();
+  }
+  function useBackground(source) {
+    return toCanvas(source).then(function (c) {
+      bgImg = c;
+      try { localStorage.setItem(P + 'bgimg', c.toDataURL('image/jpeg', 0.82)); } catch (e) {}
+      draw();
+    });
+  }
+
+  /* ---------------- buttons ---------------- */
+  function grow() { var t = $('prompt'); t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight) + 'px'; }
+  $('prompt').addEventListener('input', grow);
+  $('prompt').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  $('send').addEventListener('click', send);
+  $('plus').addEventListener('click', function () { $('file').click(); });
+  $('file').addEventListener('change', function () { if ($('file').files[0]) loadPicture($('file').files[0]); });
+  $('chipRemove').addEventListener('click', function () { setPicture(null); });
+  document.addEventListener('paste', function (e) {   // a screenshot can be pasted straight in
+    var item = Array.prototype.filter.call((e.clipboardData || {}).items || [], function (i) { return i.kind === 'file' && /^image\//.test(i.type); })[0];
+    if (item) { e.preventDefault(); loadPicture(item.getAsFile()); }
+  });
+  ['dragover', 'dragenter'].forEach(function (n) { $('bar').addEventListener(n, function (e) { e.preventDefault(); $('bar').classList.add('drop'); }); });
+  ['dragleave', 'drop'].forEach(function (n) { $('bar').addEventListener(n, function () { $('bar').classList.remove('drop'); }); });
+  $('bar').addEventListener('drop', function (e) { e.preventDefault(); if (e.dataTransfer.files[0]) loadPicture(e.dataTransfer.files[0]); });
+
+  $('play').addEventListener('click', function () { if (playing) { playing = false; return; } status(''); play(); });
+  $('download').addEventListener('click', makeVideo);
+  Object.keys(THEMES).forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = THEMES[k][0]; $('theme').appendChild(o); });
+  $('theme').addEventListener('change', function () { settings.theme = $('theme').value; store.set('settings', settings); draw(); });
+  $('bg').addEventListener('change', function () {
+    settings.bg = $('bg').value; store.set('settings', settings); status('');
+    if (settings.bg === 'ai') aiPictures(true);
+    if (settings.bg === 'own') $('bgFile').click();
+    draw();
+  });
+  $('bgFile').addEventListener('change', function () {
+    var file = $('bgFile').files[0]; $('bgFile').value = '';
+    if (file) useBackground(file).then(function () { status('Your picture is the background now.'); }, function (e) { status(e.message, true); });
+  });
+
+  $('title').addEventListener('input', function () { reel.title = $('title').value.trim() || 'My reel'; saveAndDraw(); });
+  $('endText').addEventListener('input', function () { reel.endText = $('endText').value.trim(); time = total() - 0.1; saveAndDraw(); });
+  $('endSmall').addEventListener('input', function () { reel.endSmall = $('endSmall').value.trim(); store.set('endSmall', reel.endSmall); time = total() - 0.1; saveAndDraw(); });
+  $('addSlide').addEventListener('click', function () { reel.slides.push({ heading: 'Heading', points: ['First point'] }); showReel(); saveAndDraw(); });
+  function copy(text, btn, label) {
+    var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = label; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () {});
+    else { var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); done(); }
+  }
+  $('copyCaption').addEventListener('click', function () { copy($('caption').value, $('copyCaption'), 'Copy caption'); });
+
+  // A key as pasted can carry spaces, line breaks, quotes or invisible characters from the page it was copied from
+  // The services' own words, plus what to do about them
+  function keyHint(name, message) {
+    if (name === 'OpenRouter' && /missing authentication/i.test(message)) return 'this is not an OpenRouter key. It must start with sk-or-v1- (openrouter.ai → Keys → Create Key).';
+    if (name === 'OpenRouter' && /user not found/i.test(message)) return 'this key was deleted or is wrong. Make a new one: openrouter.ai → Keys → Create Key.';
+    if (name === 'Gemini' && /not valid|invalid/i.test(message)) return message + ' Copy it again from aistudio.google.com → Get API key (it starts with AIza or AQ.).';
+    if (name === 'Gemini' && /referer|referrer|blocked/i.test(message)) return message + ' This key only works on some websites: make a new key without "website restrictions" in aistudio.google.com.';
+    if (name === 'Groq' && /invalid api key/i.test(message)) return message + '. Copy it again from console.groq.com → API Keys (it starts with gsk_).';
+    return message;
+  }
+  function cleanKey(v) { return String(v || '').replace(/[\s"'`​-‍⁠﻿]/g, ''); }
+  // Clear: a fresh start (chat, reel, attached picture, background picture); the keys and settings stay saved
+  $('clearAll').addEventListener('click', function () {
+    if ((chat.length || reel) && !confirm('Clear the chat and the reel? Your keys stay saved.')) return;
+    playing = false; reel = null; chat = []; bgImg = null; time = 0;
+    store.set('reel', null); store.set('chat', []);
+    pics = {};
+    try { localStorage.removeItem(P + 'bgimg'); localStorage.removeItem(P + 'pics'); } catch (e) {}
+    if (settings.bg !== 'colour') { settings.bg = 'colour'; $('bg').value = 'colour'; store.set('settings', settings); }
+    setPicture(null); $('prompt').value = ''; grow();
+    showChat(); showReel(); draw(); status('Cleared. Type your idea and press ➤.');
+  });
+
+  function openKeys() { ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { $(k).value = settings[k]; }); $('lang').value = settings.lang; $('keyCheck').textContent = ''; $('keys').showModal(); }
+  $('openKeys').addEventListener('click', openKeys);
+  $('closeKeys').addEventListener('click', function () { $('keys').close(); });
+
+  // Test keys: one small request to each service with the keys typed in the boxes now (saved or not)
+  function checkKey(name, value, url, headers) {
+    if (!value) return Promise.resolve('– ' + name + ': no key');
+    return fetchT(url, { headers: headers }, 20).then(function (r) {
+      if (r.ok) return '✔ ' + name + ': the key works';
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        var e = j.error || {};
+        return '✘ ' + name + ': ' + keyHint(name, typeof e === 'string' ? e : (e.message || 'HTTP ' + r.status));
+      });
+    }, function (e) { return '✘ ' + name + ': ' + (e && e.name === 'AbortError' ? 'no answer (try again)' : 'could not be reached'); });
+  }
+  $('testKeys').addEventListener('click', function () {
+    var g = cleanKey($('key').value), o = cleanKey($('okey').value), q = cleanKey($('gkey').value);
+    $('keyCheck').style.color = ''; $('keyCheck').textContent = 'Testing…'; $('testKeys').disabled = true;
+    Promise.all([
+      checkKey('Gemini', g, 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', { 'x-goog-api-key': g }),
+      checkKey('OpenRouter', o, 'https://openrouter.ai/api/v1/key', { Authorization: 'Bearer ' + o }),
+      checkKey('Groq', q, 'https://api.groq.com/openai/v1/models', { Authorization: 'Bearer ' + q })
+    ]).then(function (lines) {
+      $('keyCheck').textContent = lines.join('\n') + '\n(Pollinations is checked when you choose Background → AI picture.)';
+      $('testKeys').disabled = false;
+    });
+  });
+  $('saveKeys').addEventListener('click', function () {
+    ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { settings[k] = cleanKey($(k).value); });
+    settings.lang = $('lang').value; store.set('settings', settings); $('keys').close();
+    status('Keys saved in this browser.');
+  });
+
+  $('manualCopy').addEventListener('click', function () { copy($('manualAsk').value, $('manualCopy'), 'Copy message'); });
+  $('manualOpen').addEventListener('click', function () { window.open('https://gemini.google.com/app', '_blank', 'noopener'); });
+  $('manualUse').addEventListener('click', function () {
+    var answer = $('manualReply').value.trim();
+    if (answer.indexOf('{') < 0) { $('manualReply').focus(); return; }
+    var w = manualWait; manualWait = null; $('manual').close(); if (w) w.resolve(answer);
+  });
+  $('manual').addEventListener('close', function () { if (manualWait) { var w = manualWait; manualWait = null; w.reject(new Error('Cancelled. Press ➤ again when you are ready.')); } });
+  $('manualCancel').addEventListener('click', function () { $('manual').close(); });
+
+  /* ---------------- start ---------------- */
+  ['key', 'okey', 'gkey', 'pkey'].forEach(function (k) { settings[k] = cleanKey(settings[k]); });   // keys saved before the clean-up
+  if (!THEMES[settings.theme]) settings.theme = 'indigo';
+  if (['colour', 'ai', 'own'].indexOf(settings.bg) < 0) settings.bg = 'colour';
+  if (reel && (!Array.isArray(reel.slides) || reel.slides.some(function (s) { return !Array.isArray(s.points); }))) reel = null;
+  $('theme').value = settings.theme; $('bg').value = settings.bg;
+  try {   // the background picture of last time
+    var kept = localStorage.getItem(P + 'bgimg');
+    if (kept) { var oldImg = new Image(); oldImg.onload = function () { var c = document.createElement('canvas'); c.width = 720; c.height = 1280; c.getContext('2d').drawImage(oldImg, 0, 0, 720, 1280); bgImg = c; draw(); }; oldImg.src = kept; }
+  } catch (e) {}
+  try {   // the AI pictures of the reel of last time
+    var keptPics = JSON.parse(localStorage.getItem(P + 'pics') || '{}') || {};
+    Object.keys(keptPics).forEach(function (idea) {
+      var im = new Image();
+      im.onload = function () { var c = document.createElement('canvas'); c.width = 720; c.height = 1280; c.getContext('2d').drawImage(im, 0, 0, 720, 1280); pics[idea] = c; draw(); };
+      im.src = keptPics[idea];
+    });
+  } catch (e) {}
+  showChat(); showReel(); draw(); grow();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+  if (!store.get('settings', null) && !settings.key && !settings.okey && !settings.gkey) openKeys();   // first visit: paste the keys
+  // for checking the page from the browser's console
+  window.reelMaker = { aiPictures: aiPictures, readAnswer: readAnswer, askAI: askAI, clean: clean, total: total, seek: function (t) { time = t; draw(); }, setReel: function (r) { reel = r; store.set('reel', r); showReel(); time = 0; draw(); } };
+})();
+</script>
+</body>
+</html>
