@@ -63,11 +63,30 @@ summary{cursor:pointer;font-weight:700;font-size:13.5px}
 dialog{border:0;border-radius:16px;padding:20px;max-width:460px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.3)}
 dialog::backdrop{background:rgba(10,15,40,.5)}
 dialog h2{font-size:17px;margin:0 0 6px}
-/* Play / Download on the video itself */
-.stage{position:relative}
-.ov{position:absolute;left:0;right:0;bottom:16px;display:flex;justify-content:space-between;padding:0 14px;pointer-events:none}
-.ov button{pointer-events:auto;width:50px;height:50px;border-radius:50%;padding:0;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+/* The reel in the chat, like a picture answer in ChatGPT: "Worked for …" above it, a big ▶ in the middle,
+   "Edit" at the bottom left and ⬇ at the bottom right */
+.reelcard{align-self:flex-start;width:min(320px,82%);flex:0 0 auto}
+.reelcard .worked{font-size:13px;color:var(--muted);margin:2px 0 8px 2px}
+.stage{position:relative;cursor:pointer}
+.stage canvas{border-radius:18px}
+.ov{position:absolute;left:0;right:0;bottom:14px;display:flex;justify-content:space-between;align-items:center;padding:0 14px;pointer-events:none}
+.ov button{pointer-events:auto;border:0;background:rgba(30,30,30,.62);color:#fff;backdrop-filter:blur(6px)}
+#ovEdit{border-radius:20px;padding:8px 16px;font-size:14px}
+#ovDown{width:42px;height:42px;border-radius:50%;padding:0;font-size:18px;display:flex;align-items:center;justify-content:center}
 .ov button:disabled{opacity:.5}
+#ovPlay{position:absolute;left:50%;top:70%;transform:translate(-50%,-50%);width:68px;height:68px;border-radius:50%;padding:0 0 0 5px;border:0;background:rgba(30,30,30,.55);color:#fff;font-size:30px;backdrop-filter:blur(6px)}
+.reelcard.playing #ovPlay{opacity:0}
+.reelcard.playing:hover #ovPlay{opacity:.85}
+/* while the reel is being made: a dotted placeholder with a percentage */
+.making{position:relative;aspect-ratio:9/16;border-radius:18px;background-color:#fafbff;
+  background-image:radial-gradient(circle,#93a8f4 1.3px,transparent 1.8px);background-size:14px 14px;
+  -webkit-mask-image:linear-gradient(90deg,#000 0%,rgba(0,0,0,.35) 50%,#000 100%);mask-image:linear-gradient(90deg,#000 0%,rgba(0,0,0,.35) 50%,#000 100%);
+  -webkit-mask-size:200% 100%;mask-size:200% 100%;animation:dots 1.6s linear infinite}
+@keyframes dots{from{-webkit-mask-position:0 0;mask-position:0 0}to{-webkit-mask-position:-200% 0;mask-position:-200% 0}}
+.makingPct{position:absolute;right:10px;bottom:10px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:3px 10px;font-size:13px;font-weight:700;color:var(--main);box-shadow:0 2px 8px rgba(0,0,0,.06)}
+/* the panel: details of the reel */
+.side h2{font-size:15px;margin:0 0 4px}
+#sideEmpty{background:#fff;border:1px dashed var(--line);border-radius:14px;padding:18px;text-align:center}
 
 /* Phones: like a chat app. The chat fills the screen, the input box stays at the bottom, and the reel shows up in the
    chat as the AI's answer, with its buttons, colour, caption and editing underneath */
@@ -79,10 +98,11 @@ dialog h2{font-size:17px;margin:0 0 6px}
   #chat{padding:12px}
   .msg{max-width:88%}
   .composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
-  .side{position:static;align-self:flex-start;width:min(92%,360px);background:var(--soft);border-radius:18px;padding:10px;flex:0 0 auto}
-  .side .mainRow{display:none}
+  .side{position:static;width:auto;margin:0;background:var(--soft);border-top:1px solid var(--line);padding:14px 14px calc(18px + env(safe-area-inset-bottom))}
   .side details{background:#fff}
+  .reelcard{width:min(78%,320px)}
 }
+.mainRow{display:none}
 </style>
 </head>
 <body>
@@ -106,11 +126,19 @@ dialog h2{font-size:17px;margin:0 0 6px}
     </div>
   </section>
 
-  <aside class="side" id="side">
-    <div class="stage">
+  <!-- the reel: shown inside the chat (placed there by the script) -->
+  <div class="reelcard" id="reelCard" hidden>
+    <div class="worked" id="worked"></div>
+    <div class="stage" id="stage">
       <canvas id="cv" width="1080" height="1920"></canvas>
-      <div class="ov"><button id="ovPlay" title="Play" aria-label="Play">▶</button><button id="ovDown" title="Download video" aria-label="Download video">⬇</button></div>
+      <button id="ovPlay" title="Play" aria-label="Play">▶</button>
+      <div class="ov"><button id="ovEdit" title="Edit the reel">✏ Edit</button><button id="ovDown" title="Download video" aria-label="Download video">⬇</button></div>
     </div>
+  </div>
+
+  <aside class="side" id="side">
+    <h2>Reel details</h2>
+    <div id="sideEmpty" class="muted">Your reel appears in the chat. Its caption, colours and text editing appear here.</div>
     <div class="row mainRow">
       <button id="play">▶ Play</button>
       <button id="download" class="primary">⬇ Download video</button>
@@ -463,7 +491,11 @@ dialog h2{font-size:17px;margin:0 0 6px}
       d.appendChild(document.createTextNode(m.text)); box.appendChild(d);
     });
     placeSide();
-    if (waiting) { var w = document.createElement('div'); w.className = 'msg ai wait'; w.id = 'waitMsg'; w.textContent = 'Making your reel…'; box.appendChild(w); }
+    if (waiting) {   // a dotted placeholder, as ChatGPT shows while it makes a picture
+      var w = document.createElement('div'); w.className = 'reelcard';
+      w.innerHTML = '<div class="worked" id="waitMsg">Making your reel…</div><div class="making"><span class="makingPct" id="waitPct">0%</span></div>';
+      box.appendChild(w);
+    }
     box.scrollTop = box.scrollHeight;
   }
 
@@ -478,10 +510,13 @@ dialog h2{font-size:17px;margin:0 0 6px}
     $('prompt').value = ''; grow();
     busy = true; $('send').disabled = true; asking = ''; showChat(true);
     // which AI is working, and for how long
+    // the percentage is an estimate from the time (AIs don't say how far they are): fast at first, never 100% before the end
     var started = Date.now(), ticker = setInterval(function () {
-      var w = $('waitMsg'); if (!w) return;
-      w.textContent = 'Making your reel…' + (asking ? ' asking ' + asking : '') + ' (' + Math.round((Date.now() - started) / 1000) + ' s)';
-    }, 1000);
+      var w = $('waitMsg'), p = $('waitPct'); if (!w) return;
+      var s = (Date.now() - started) / 1000;
+      w.textContent = 'Making your reel…' + (asking ? ' asking ' + asking : '');
+      if (p) p.textContent = Math.min(95, Math.round(100 * (1 - Math.exp(-s / 9)))) + '%';
+    }, 500);
     askAI(message).then(function (data) {
       var result = clean(data), next = result.reel;
       if (!next.slides.length) throw new Error('The AI could not make slides from this. Write a little more and try again.');
@@ -495,17 +530,17 @@ dialog h2{font-size:17px;margin:0 0 6px}
       next.endText = next.endText || 'Follow for more';
       next.endSmall = next.endSmall || store.get('endSmall', '');
       return Promise.resolve().then(function () {
+        next.worked = Math.max(1, Math.round((Date.now() - started) / 1000));
         reel = next; store.set('reel', reel);
         // the background the owner asked for in the message
         if (result.background === 'own' && hadPicture) useBackground(dataUrlBlob(hadPicture.url));
         if (result.background && result.background !== settings.bg) { settings.bg = result.background; $('bg').value = settings.bg; store.set('settings', settings); }
         setPicture(null);
         say('ai', (result.reply || 'Your reel is ready.')
-          + (result.background === 'ai' ? ' Making AI pictures for the background…' : '') + ' Press ▶ Play to watch it, ⬇ Download video to save it.' + (used ? ' (' + used + ')' : ''));
+          + (result.background === 'ai' ? ' Making AI pictures for the background…' : '') + ' Press ▶ to watch it, ⬇ to save the video.' + (used ? ' (' + used + ')' : ''));
         if (next.read) say('read', 'Read from your picture, please check:\n' + next.read);
-        showReel(); time = 0; draw();
-        // on a phone: the new reel comes into view (it sits in the chat under the AI answer)
-        if (window.matchMedia('(max-width: 860px)').matches) $('side').scrollIntoView({ block: 'start', behavior: 'smooth' });
+        showReel(); time = COVER; draw();
+        $('reelCard').scrollIntoView({ block: 'start', behavior: 'smooth' });   // the new reel comes into view
         if (settings.bg === 'ai') aiPictures(false);
       });
     }).catch(function (e) { showChat(); say('bad', e.message || 'Something went wrong. Please try again.'); })
@@ -542,11 +577,17 @@ dialog h2{font-size:17px;margin:0 0 6px}
     el.value = value; el.addEventListener('input', function () { onInput(el.value); saveAndDraw(); });
     wrap.appendChild(l); wrap.appendChild(el); return wrap;
   }
-  // The reel preview: beside the chat on a computer; on a phone inside the chat, under the last message (only when there is a reel)
+  // The reel card goes into the chat under the messages (computer and phone). The details panel (colour, background,
+  // caption, editing) sits beside the chat on a computer, and below the input box on a phone.
   function placeSide() {
-    var side = $('side'), phone = window.matchMedia('(max-width: 860px)').matches;
-    if (phone && reel) { side.hidden = false; $('chat').appendChild(side); }
-    else { side.hidden = phone; if (side.parentNode !== document.querySelector('main')) document.querySelector('main').appendChild(side); }
+    var side = $('side'), card = $('reelCard'), main = document.querySelector('main'), phone = window.matchMedia('(max-width: 860px)').matches;
+    card.hidden = !reel;
+    if (reel) { $('worked').textContent = reel.worked ? 'Worked for ' + reel.worked + ' s' : 'Your reel'; $('chat').appendChild(card); }
+    else if (card.parentNode !== main) main.appendChild(card);
+    $('sideEmpty').hidden = !!reel;
+    // phone: below the input box (scroll down to it; ✏ Edit on the reel goes there), only once there is a reel
+    side.hidden = phone && !reel;
+    if (side.parentNode !== main) main.appendChild(side);
   }
   function showReel() {
     $('editBox').hidden = $('captionBox').hidden = !reel;
@@ -604,7 +645,8 @@ dialog h2{font-size:17px;margin:0 0 6px}
   /* ---------------- the reel on the canvas (1080 x 1920) ---------------- */
   var cv = $('cv'), g = cv.getContext('2d'), W = 1080, H = 1920;
   var FONT = 'Inter, "Noto Sans Gujarati", "Noto Sans Devanagari", "Nirmala UI", "Segoe UI", sans-serif';
-  var time = 0, playing = false, bgImg = null;
+  // COVER: the moment shown as the reel card's still picture (the title fully faded in), as a video app shows a cover
+  var COVER = 1.2, time = COVER, playing = false, recording = false, bgImg = null;
 
   function segments() {
     var list = [{ kind: 'cover', seconds: 3 }];
@@ -711,10 +753,10 @@ dialog h2{font-size:17px;margin:0 0 6px}
   function play() {
     return new Promise(function (resolve) {
       var start = performance.now(), end = total();
-      playing = true; $('play').textContent = '■ Stop'; $('ovPlay').textContent = '■';
+      playing = true; $('play').textContent = '■ Stop'; $('ovPlay').textContent = '❚❚'; $('reelCard').classList.add('playing');
       (function step() {
         time = Math.min(end, (performance.now() - start) / 1000); draw();
-        if (time < end && playing) setTimeout(step, 1000 / 30); else { playing = false; $('play').textContent = '▶ Play'; $('ovPlay').textContent = '▶'; resolve(); }
+        if (time < end && playing) setTimeout(step, 1000 / 30); else { playing = false; $('play').textContent = '▶ Play'; $('ovPlay').textContent = '▶'; $('reelCard').classList.remove('playing'); if (!recording) { time = COVER; draw(); } resolve(); }
       })();
     });
   }
@@ -727,6 +769,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
     var stream = cv.captureStream(30), rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6000000 }), chunks = [];
     rec.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
     rec.onstop = function () {
+      recording = false; time = COVER; draw();   // the video ends on the last screen; the card goes back to its cover
       stream.getTracks().forEach(function (t) { t.stop(); });
       var ext = type.indexOf('mp4') > -1 ? 'mp4' : 'webm', a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob(chunks, { type: type.split(';')[0] }));
@@ -737,7 +780,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
     };
     $('download').disabled = $('play').disabled = $('ovDown').disabled = $('ovPlay').disabled = true;
     status('Making the video… keep this tab open and in front (' + Math.round(total()) + ' seconds).');
-    rec.start();
+    recording = true; rec.start();
     play().then(function () { setTimeout(function () { rec.stop(); }, 250); });
   }
 
@@ -839,9 +882,17 @@ dialog h2{font-size:17px;margin:0 0 6px}
 
   function togglePlay() { if (playing) { playing = false; return; } status(''); play(); }
   $('play').addEventListener('click', togglePlay);
-  $('ovPlay').addEventListener('click', togglePlay);
+  $('ovPlay').addEventListener('click', function (e) { e.stopPropagation(); togglePlay(); });
+  $('cv').addEventListener('click', togglePlay);   // a tap on the video plays / stops it, as in a reel app
+  // Edit: opens the editing of the text (beside the chat on a computer, under the reel on a phone)
+  $('ovEdit').addEventListener('click', function (e) {
+    e.stopPropagation();
+    $('editBox').open = true;
+    $('editBox').scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setTimeout(function () { $('title').focus({ preventScroll: true }); }, 300);
+  });
   $('download').addEventListener('click', makeVideo);
-  $('ovDown').addEventListener('click', makeVideo);
+  $('ovDown').addEventListener('click', function (e) { e.stopPropagation(); makeVideo(); });
   // phone or computer layout when the window size changes (turning the phone)
   // (checked on every resize, acted on only when it changes: on a phone the keyboard opening also resizes the window)
   var wasPhone = window.matchMedia('(max-width: 860px)').matches;
