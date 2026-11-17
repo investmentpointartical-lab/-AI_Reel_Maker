@@ -196,22 +196,28 @@ dialog h2{font-size:17px;margin:0 0 6px}
     '{"reply": "one short sentence for the user: what you made or changed",',
     ' "read": "only when a picture is attached: what you read or see in it that matters, one item per line; otherwise empty",',
     ' "title": "a strong short hook for the first screen, max 60 characters",',
-    ' "slides": [{"heading": "max 40 characters", "points": ["max 80 characters", "..."], "picture": "one line in English: a realistic marketing photo that shows what THIS slide is about (people, place, objects, mood, light)"}],',
+    ' "slides": [{"heading": "max 40 characters", "points": ["max 80 characters", "..."], "picture": "one line in English: a realistic marketing photo that shows what THIS slide is about (people, place, objects, mood, light)", "icon_box": [ymin, xmin, ymax, xmax] or null}],',
     ' "end": "a short call to action for the last screen, max 40 characters",',
     ' "hashtags": ["5 to 8 fitting hashtags without the # sign"],',
-    ' "picture": "one line in English: a realistic marketing photo for the first screen that shows what the whole reel is about"}',
+    ' "picture": "one line in English: a realistic marketing photo for the first screen that shows what the whole reel is about",',
+    ' "logo_box": [ymin, xmin, ymax, xmax] or null,',
+    ' "background": "ai_photos" or "my_picture" or "plain" or ""}',
     'Rules:',
     '- 3 to 5 slides unless the user asks otherwise (never more than 7); 2 to 5 points on a slide.',
     '- Follow the user\'s message. Use the facts and figures the user gives or that are in the attached picture exactly as they are; never invent a number, a date, a name, a price or an offer.',
     '- From a picture: copy numbers and names exactly as printed; leave out what you cannot read clearly.',
     '- When a current reel is given, change only what the message asks and return the whole reel again.',
     '- Short, clear, lively sentences for a phone screen. No hashtags, links or emojis inside the slides.',
-    '- Every "picture" is a photo idea for an advertisement: it matches the slide\'s message (for example a happy retired couple for a pension slide, a doctor with a patient for a health slide), fits the people the product is for, and has no text, words, numbers or logos in it. If the user says what pictures they want, follow that.'
+    '- Every "picture" is a photo idea for an advertisement: it matches the slide\'s message (for example a happy retired couple for a pension slide, a doctor with a patient for a health slide), fits the people the product is for, and has no text, words, numbers or logos in it. If the user says what pictures they want, follow that.',
+    '- "background": what the user asks for behind the slides. "ai_photos" when they ask for (AI) photos / pictures / images in the background or ones that change with the slides or the benefits; "my_picture" when they want their attached picture itself behind the slides; "plain" when they want no picture; "" when they say nothing about the background.',
+    '- Icons and logo from the attached picture: only when the user asks to use the icons, logos, symbols or images shown in their picture. Then give "icon_box" for every slide whose topic has its own small icon or image in the picture, and "logo_box" for the company or brand logo. A box is [ymin, xmin, ymax, xmax] as whole numbers from 0 to 1000 (0,0 = top left of the picture, 1000 = the bottom / the right edge), tight around just that icon, without its text. Otherwise, and for anything you cannot find, use null.'
   ].join('\n');
 
   function promptText(message) {
     var language = settings.lang === 'auto' ? 'the language of the user\'s message (keep the language of the current reel unless asked to change it)' : settings.lang;
-    return (reel ? 'The current reel (JSON):\n' + JSON.stringify({ title: reel.title, slides: reel.slides, end: reel.endText }) + '\n\nThe user\'s message:\n' : 'The user\'s request for a new reel:\n') + message
+    // the current reel without the cut-out pictures (big, and only for this page)
+    var current = reel && { title: reel.title, end: reel.endText, slides: reel.slides.map(function (s) { return { heading: s.heading, points: s.points, picture: s.scene || '' }; }) };
+    return (reel ? 'The current reel (JSON):\n' + JSON.stringify(current) + '\n\nThe user\'s message:\n' : 'The user\'s request for a new reel:\n') + message
       + (picture ? '\n\nA picture is attached: use what it shows as the message asks, and list what you read in "read".' : '')
       + '\n\nWrite the reel in ' + language + '.';
   }
@@ -396,15 +402,53 @@ dialog h2{font-size:17px;margin:0 0 6px}
       if (!s || typeof s !== 'object') return;
       var heading = plain(s.heading, 48);
       var points = (Array.isArray(s.points) ? s.points : []).map(function (p) { return plain(p, 110); }).filter(Boolean).slice(0, MAX_POINTS);
-      if (heading && points.length) slides.push({ heading: heading, points: points, scene: plain(s.picture, 300) });
+      if (heading && points.length) slides.push({ heading: heading, points: points, scene: plain(s.picture, 300), iconBox: box(s.icon_box) });
     });
     var tags = (Array.isArray(data.hashtags) ? data.hashtags : []).map(function (t) { return String(t).replace(/[^\p{L}\p{M}\p{N}_]+/gu, ''); }).filter(Boolean).slice(0, 8);
     return {
       reel: { title: plain(data.title, 80) || (slides[0] ? slides[0].heading : 'My reel'), slides: slides, endText: plain(data.end, 50),
         read: String(data.read == null ? '' : data.read).replace(/<[^>]*>/g, '').replace(/\n{2,}/g, '\n').trim().slice(0, 3000),
-        scene: plain(data.picture, 300), hashtags: tags },
-      reply: plain(data.reply, 300)
+        scene: plain(data.picture, 300), hashtags: tags, logoBox: box(data.logo_box) },
+      reply: plain(data.reply, 300),
+      background: ({ ai_photos: 'ai', my_picture: 'own', plain: 'colour' })[String(data.background || '').toLowerCase().trim()] || ''
     };
+  }
+  // A box [ymin, xmin, ymax, xmax] in 0..1000, or null when it is missing or makes no sense
+  function box(v) {
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return null; } }
+    if (!Array.isArray(v) || v.length !== 4) return null;
+    var n = v.map(Number);
+    if (n.some(function (x) { return !isFinite(x); })) return null;
+    if (Math.max.apply(null, n) <= 1.001) n = n.map(function (x) { return x * 1000; });   // given as 0..1
+    n = n.map(function (x) { return Math.max(0, Math.min(1000, x)); });
+    return n[2] - n[0] >= 15 && n[3] - n[1] >= 15 && n[2] - n[0] <= 900 && n[3] - n[1] <= 900 ? n : null;
+  }
+  // Cuts one box out of the owner's picture (a little margin around it), as a small picture kept with the reel
+  function cutOut(img, b) {
+    var h = img.naturalHeight, w = img.naturalWidth;
+    var y0 = b[0] / 1000 * h, x0 = b[1] / 1000 * w, y1 = b[2] / 1000 * h, x1 = b[3] / 1000 * w;
+    var mx = (x1 - x0) * 0.08, my = (y1 - y0) * 0.08;
+    x0 = Math.max(0, x0 - mx); y0 = Math.max(0, y0 - my); x1 = Math.min(w, x1 + mx); y1 = Math.min(h, y1 + my);
+    var k = Math.min(1, 360 / Math.max(x1 - x0, y1 - y0));
+    var c = document.createElement('canvas'); c.width = Math.max(1, Math.round((x1 - x0) * k)); c.height = Math.max(1, Math.round((y1 - y0) * k));
+    var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+    x.drawImage(img, x0, y0, x1 - x0, y1 - y0, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.9);
+  }
+  function dataUrlBlob(url) {
+    var parts = url.split(','), bytes = atob(parts[1]), arr = new Uint8Array(bytes.length);
+    for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: (/data:([^;]+)/.exec(parts[0]) || [0, 'image/jpeg'])[1] });
+  }
+  function loadImage(src) {
+    return new Promise(function (resolve, reject) { var im = new Image(); im.onload = function () { resolve(im); }; im.onerror = reject; im.src = src; });
+  }
+  // The cut-out pictures as images for the canvas (made once)
+  var shown = {};
+  function imageOf(src) {
+    if (!src) return null;
+    if (!shown[src]) { shown[src] = new Image(); shown[src].onload = function () { draw(); }; shown[src].src = src; }
+    return shown[src].complete && shown[src].naturalWidth ? shown[src] : null;
   }
 
   /* ---------------- chat ---------------- */
@@ -450,7 +494,15 @@ dialog h2{font-size:17px;margin:0 0 6px}
       var result = clean(data), next = result.reel;
       if (!next.slides.length) throw new Error('The AI could not make slides from this. Write a little more and try again.');
       if (reel) {   // a change keeps what the owner set before and what the AI left out
-        if (!hadPicture) next.read = '';
+        if (!hadPicture) {
+          next.read = '';
+          // icons and logo cut out before stay with their slide (same heading, else the same place)
+          next.logo = reel.logo || '';
+          next.slides.forEach(function (s, i) {
+            var same = reel.slides.filter(function (o) { return o.heading === s.heading; })[0] || reel.slides[i];
+            if (same && same.icon) s.icon = same.icon;
+          });
+        }
         next.scene = next.scene || reel.scene || '';
         next.hashtags = next.hashtags.length ? next.hashtags : (reel.hashtags || []);
         next.endText = next.endText || reel.endText || '';
@@ -458,12 +510,29 @@ dialog h2{font-size:17px;margin:0 0 6px}
       }
       next.endText = next.endText || 'Follow for more';
       next.endSmall = next.endSmall || store.get('endSmall', '');
-      reel = next; store.set('reel', reel);
-      setPicture(null);
-      say('ai', (result.reply || 'Your reel is ready.') + ' Press ▶ Play to watch it, ⬇ Download video to save it.' + (used ? ' (' + used + ')' : ''));
-      if (next.read) say('read', 'Read from your picture, please check:\n' + next.read);
-      showReel(); time = 0; draw();
-      if (settings.bg === 'ai') aiPictures(false);
+      // icons and the logo the AI found in the owner's picture: cut out of it
+      var cut = Promise.resolve(0);
+      if (hadPicture && (next.logoBox || next.slides.some(function (s) { return s.iconBox; }))) {
+        cut = loadImage(hadPicture.url).then(function (img) {
+          var n = 0;
+          if (next.logoBox) { next.logo = cutOut(img, next.logoBox); n++; }
+          next.slides.forEach(function (s) { if (s.iconBox) { s.icon = cutOut(img, s.iconBox); n++; } });
+          return n;
+        }, function () { return 0; });
+      }
+      return cut.then(function (cutCount) {
+        delete next.logoBox; next.slides.forEach(function (s) { delete s.iconBox; });
+        reel = next; store.set('reel', reel);
+        // the background the owner asked for in the message
+        if (result.background === 'own' && hadPicture) useBackground(dataUrlBlob(hadPicture.url));
+        if (result.background && result.background !== settings.bg) { settings.bg = result.background; $('bg').value = settings.bg; store.set('settings', settings); }
+        setPicture(null);
+        say('ai', (result.reply || 'Your reel is ready.') + (cutCount ? ' ' + cutCount + ' icon' + (cutCount === 1 ? '' : 's') + ' / logo taken from your picture.' : '')
+          + (result.background === 'ai' ? ' Making AI pictures for the background…' : '') + ' Press ▶ Play to watch it, ⬇ Download video to save it.' + (used ? ' (' + used + ')' : ''));
+        if (next.read) say('read', 'Read from your picture, please check:\n' + next.read);
+        showReel(); time = 0; draw();
+        if (settings.bg === 'ai') aiPictures(false);
+      });
     }).catch(function (e) { showChat(); say('bad', e.message || 'Something went wrong. Please try again.'); })
       .then(function () { clearInterval(ticker); busy = false; $('send').disabled = false; });
   }
@@ -515,11 +584,25 @@ dialog h2{font-size:17px;margin:0 0 6px}
         s.points = v.split(/\n+/).map(function (x) { return x.trim(); }).filter(Boolean).slice(0, MAX_POINTS);
       }, 4, 700));
       d.appendChild(pictureIdea(s));
+      if (s.icon) {   // the icon taken from the owner's picture, with a button to leave it out
+        var iconRow = document.createElement('div'); iconRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:8px';
+        var thumb = document.createElement('img'); thumb.src = s.icon; thumb.alt = ''; thumb.style.cssText = 'height:44px;border-radius:6px;border:1px solid var(--line);background:#fff';
+        var drop = document.createElement('button'); drop.className = 'small'; drop.textContent = 'Remove icon';
+        drop.addEventListener('click', function () { delete s.icon; showReel(); saveAndDraw(); });
+        iconRow.appendChild(thumb); iconRow.appendChild(drop); d.appendChild(iconRow);
+      }
       box.appendChild(d);
     });
     // the first screen's picture idea, above the slides
     var cover = document.createElement('div'); cover.className = 'slide';
     cover.appendChild(pictureIdea(null));
+    if (reel.logo) {   // the logo taken from the owner's picture (first and last screen)
+      var logoRow = document.createElement('div'); logoRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:8px';
+      var lthumb = document.createElement('img'); lthumb.src = reel.logo; lthumb.alt = ''; lthumb.style.cssText = 'height:44px;border-radius:6px;border:1px solid var(--line);background:#fff';
+      var ldrop = document.createElement('button'); ldrop.className = 'small'; ldrop.textContent = 'Remove logo';
+      ldrop.addEventListener('click', function () { delete reel.logo; showReel(); saveAndDraw(); });
+      logoRow.appendChild(lthumb); logoRow.appendChild(ldrop); cover.appendChild(logoRow);
+    }
     box.insertBefore(cover, box.firstChild);
     $('addSlide').disabled = reel.slides.length >= MAX_SLIDES;
     caption();
@@ -612,8 +695,18 @@ dialog h2{font-size:17px;margin:0 0 6px}
     var inA = ease(local / 0.45), shift = (1 - inA) * 60;
     g.textAlign = 'center'; g.textBaseline = 'middle';
 
+    // A cut-out picture (logo or icon) on a white card, centred at (cx, cy), at most maxW x maxH
+    function card(src, cx, cy, maxW, maxH, alpha) {
+      var im = imageOf(src); if (!im) return 0;
+      var k = Math.min(maxW / im.naturalWidth, maxH / im.naturalHeight), w = im.naturalWidth * k, h = im.naturalHeight * k, pad = 22;
+      g.globalAlpha = alpha; g.fillStyle = '#ffffff'; rounded(cx - w / 2 - pad, cy - h / 2 - pad, w + pad * 2, h + pad * 2, 28); g.fill();
+      var sb = g.shadowBlur; g.shadowBlur = 0; g.drawImage(im, cx - w / 2, cy - h / 2, w, h); g.shadowBlur = sb;
+      return h + pad * 2;
+    }
+
     if (seg.kind === 'cover') {
       var title = reel ? reel.title : 'Your reel appears here';
+      if (reel && reel.logo) card(reel.logo, W / 2, 400 + shift, 560, 220, inA);
       var f = fit(title, W - 160, 100, 56, 5, 900), lh = f.size * 1.22, y = 930 - (f.lines.length - 1) * lh / 2 + shift;
       g.globalAlpha = inA; g.fillStyle = text; font(f.size, 900);
       f.lines.forEach(function (line, i) { g.fillText(line, W / 2, y + i * lh); });
@@ -624,7 +717,10 @@ dialog h2{font-size:17px;margin:0 0 6px}
       g.globalAlpha = inA; g.fillStyle = th[3]; rounded(70, 190 + shift, W - 140, hh, 24); g.fill();
       g.fillStyle = th[4]; font(hf.size, 800);
       hf.lines.forEach(function (line, i) { g.fillText(line, W / 2, 222 + shift + hf.size * 0.6 + i * hf.size * 1.2); });
-      var top = 190 + hh + 80, room = H - 170 - top;
+      var top = 190 + hh + 80;
+      // the slide's icon from the owner's picture, between the heading and the points
+      if (s.icon && imageOf(s.icon)) { var ih = card(s.icon, W / 2, top + 130 + shift, 240, 220, ease((local - 0.25) / 0.5)); top += ih + 60; }
+      var room = H - 170 - top;
       // one size for all points so that the whole list fits
       var size = 58, blocks, height = function () { return blocks.reduce(function (a, b) { return a + b.length * size * 1.3 + 46; }, 0); };
       for (; size >= 34; size -= 2) { font(size, 600); blocks = s.points.map(function (p) { return wrap(p, W - 300); }); if (height() <= room) break; }
@@ -642,6 +738,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
       g.globalAlpha = 0.6; g.fillStyle = text; g.textAlign = 'center'; font(30, 600); g.fillText(index + ' / ' + (list.length - 2), W / 2, H - 100);
     } else {
       var big = (reel && reel.endText) || 'Follow for more', small = (reel && reel.endSmall) || '';
+      if (reel && reel.logo) card(reel.logo, W / 2, 560 + shift, 520, 200, inA);
       var bf = fit(big, W - 200, 96, 52, 3, 900), blh = bf.size * 1.2, by = 900 - (bf.lines.length - 1) * blh / 2 + shift;
       g.globalAlpha = inA; g.fillStyle = text; font(bf.size, 900);
       bf.lines.forEach(function (line, i) { g.fillText(line, W / 2, by + i * blh); });
