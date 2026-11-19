@@ -183,7 +183,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
   <input type="password" id="okey" autocomplete="off" placeholder="sk-or-…">
   <label for="gkey">Groq key <span class="muted">(console.groq.com — very fast)</span></label>
   <input type="password" id="gkey" autocomplete="off" placeholder="gsk_…">
-  <label for="pkey">Pollinations key <span class="muted">(enter.pollinations.ai — AI background pictures)</span></label>
+  <label for="pkey">Pollinations key <span class="muted">(enter.pollinations.ai — AI background pictures; optional: without it, or at its limit, free Hugging Face and AI Horde pictures are used)</span></label>
   <input type="password" id="pkey" autocomplete="off" placeholder="pk_… or sk_…">
   <label for="lang">Language of the reel</label>
   <select id="lang"><option value="auto">Same as my message</option><option value="English">English</option><option value="Gujarati">Gujarati</option><option value="Hindi">Hindi</option></select>
@@ -527,7 +527,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
     // the percentage is an estimate from the time (AIs don't say how far they are): fast at first, never 100% before the end
     var started = Date.now(), picStep = null, ticker = setInterval(function () {
       var w = $('waitMsg'), p = $('waitPct'); if (!w) return;
-      var s = (Date.now() - started) / 1000, withPics = settings.bg === 'ai' && settings.pkey;
+      var s = (Date.now() - started) / 1000, withPics = settings.bg === 'ai';
       if (picStep) {
         w.textContent = 'Making AI pictures… ' + Math.min(picStep.done + 1, picStep.total) + ' / ' + picStep.total;
         if (p) p.textContent = Math.min(98, 40 + Math.round(60 * picStep.done / picStep.total)) + '%';
@@ -554,7 +554,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
       if (result.background && result.background !== settings.bg) { settings.bg = result.background; $('bg').value = settings.bg; store.set('settings', settings); }
       setPicture(null);
       // AI picture background: the pictures are part of the reel, made before it is shown (only the missing ones)
-      var pictures = settings.bg === 'ai' && settings.pkey
+      var pictures = settings.bg === 'ai'
         ? aiPictures(false, null, false, function (done, total) { picStep = { done: done, total: total }; })
         : Promise.resolve(null);
       return pictures.then(function (made) {
@@ -564,7 +564,6 @@ dialog h2{font-size:17px;margin:0 0 6px}
           + ' Press ▶ to watch it, ⬇ to save the video.' + (used ? ' (' + used + ')' : ''));
         if (next.read) say('read', 'Read from your picture, please check:\n' + next.read);
         if (made && made.error) say('bad', 'Some AI pictures could not be made (' + made.error + ') Press ✨ Make AI pictures again under Background.');
-        if (settings.bg === 'ai' && !settings.pkey) say('bad', 'AI background pictures need the Pollinations key: paste it in ⚙ Keys. Until then the reel uses colours.');
         showReel(); time = COVER; draw();
         $('reelCard').scrollIntoView({ block: 'start', behavior: 'smooth' });   // the new reel comes into view
       });
@@ -840,16 +839,105 @@ dialog h2{font-size:17px;margin:0 0 6px}
 
   /* ---------------- music: a song from the list, or one from this device ---------------- */
   // Songs in the "music" folder of this website. To add one: put the file in the music folder and add a line here
+  // `gen`: original music played by this page itself (no file, free of copyright), see STYLES below
   var SONGS = [
-    { name: 'Music 1', src: 'music/music1.m4a' }
+    { name: 'Music 1', src: 'music/music1.m4a' },
+    { name: 'Lofi chill', gen: 'lofi' },
+    { name: 'Upbeat', gen: 'upbeat' },
+    { name: 'Calm piano', gen: 'piano' },
+    { name: 'Inspiring', gen: 'inspiring' }
   ];
   var song = new Audio(), ownSong = null, actx = null, songGain = null, songOut = null, trying = false;
   song.loop = true; song.preload = 'none';
-  function songUrl(v) {
-    if (v === 'own') return ownSong ? ownSong.url : '';
-    var m = /^s(\d+)$/.exec(v || ''); return m && SONGS[+m[1]] ? SONGS[+m[1]].src : '';
+  function songOf(v) {
+    if (v === 'own') return ownSong ? { src: ownSong.url } : null;
+    var m = /^s(\d+)$/.exec(v || ''); return m && SONGS[+m[1]] || null;
   }
-  function musicOn() { return !!songUrl(settings.music); }
+  function songUrl(v) { var s = songOf(v); return s && s.src || ''; }
+  function musicOn() { return !!songOf(settings.music); }
+
+  /* Music made by the page: chords, bass, a soft melody and drums, played with the Web Audio API.
+     Patterns have 16 steps a bar ('x' = play); one chord a bar; notes are MIDI numbers (60 = middle C) */
+  var STYLES = {
+    lofi: { bpm: 76, swing: 0.18, chords: [[53, 57, 60, 64], [52, 55, 59, 62], [50, 53, 57, 60], [48, 52, 55, 59]],
+      pad: { type: 'triangle', cut: 1100, vol: 0.05 }, bass: 'x.........x.....', kick: 'x.....x...x.....', snare: '....x.......x...', hat: '..x...x...x...x.',
+      keys: { type: 'sine', cut: 1800, vol: 0.07, chance: 0.3, decay: 0.9 }, hiss: 0.006 },
+    upbeat: { bpm: 118, swing: 0, chords: [[60, 64, 67], [55, 59, 62, 67], [57, 60, 64], [53, 57, 60, 65]],
+      pad: { type: 'sawtooth', cut: 1800, vol: 0.025 }, bass: 'x..x..x.x..x..x.', kick: 'x...x...x...x...', snare: '....x.......x...', hat: '..x...x...x...x.',
+      arp: { type: 'square', cut: 2600, vol: 0.035, every: 1, decay: 0.16, up: 12 } },
+    piano: { bpm: 72, swing: 0, chords: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],
+      pad: { type: 'sine', cut: 900, vol: 0.03 }, bass: 'x.......x.......',
+      arp: { type: 'triangle', cut: 3000, vol: 0.09, every: 2, decay: 1.4, up: 12 } },
+    inspiring: { bpm: 100, swing: 0, chords: [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]],
+      pad: { type: 'sawtooth', cut: 1300, vol: 0.03 }, bass: 'x.......x.......', kick: 'x.......x.......', snare: '............x...', hat: '..x...x...x...x.',
+      arp: { type: 'triangle', cut: 2800, vol: 0.06, every: 2, decay: 0.5, up: 12 } }
+  };
+  var synth = { timer: null, bus: null, noise: null, hiss: null };
+  function hz(n) { return 440 * Math.pow(2, (n - 69) / 12); }
+  function synthNoise() {
+    if (synth.noise) return synth.noise;
+    var b = actx.createBuffer(1, actx.sampleRate, actx.sampleRate), d = b.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return (synth.noise = b);
+  }
+  // one note: oscillator → low-pass filter → volume envelope
+  function synthTone(n, t, dur, type, vol, cut, attack) {
+    var o = actx.createOscillator(), f = actx.createBiquadFilter(), v = actx.createGain();
+    o.type = type; o.frequency.value = hz(n); f.type = 'lowpass'; f.frequency.value = cut;
+    v.gain.setValueAtTime(0.0001, t); v.gain.exponentialRampToValueAtTime(vol, t + (attack || 0.01));
+    v.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(v); v.connect(synth.bus); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function synthHit(t, kind) {
+    var v = actx.createGain();
+    if (kind === 'kick') {
+      var o = actx.createOscillator(); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+      v.gain.setValueAtTime(0.7, t); v.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      o.connect(v); v.connect(synth.bus); o.start(t); o.stop(t + 0.4); return;
+    }
+    var s = actx.createBufferSource(), f = actx.createBiquadFilter(); s.buffer = synthNoise();
+    f.type = kind === 'hat' ? 'highpass' : 'bandpass'; f.frequency.value = kind === 'hat' ? 7000 : 1800;
+    var vol = kind === 'hat' ? 0.06 : 0.22, len = kind === 'hat' ? 0.05 : 0.18;
+    v.gain.setValueAtTime(vol, t); v.gain.exponentialRampToValueAtTime(0.001, t + len);
+    s.connect(f); f.connect(v); v.connect(synth.bus); s.start(t); s.stop(t + len + 0.02);
+  }
+  function synthStart(name) {
+    synthStop();
+    var st = STYLES[name]; if (!st || !actx) return;
+    synth.bus = actx.createGain(); synth.bus.gain.value = 0.9;
+    var comp = actx.createDynamicsCompressor(); synth.bus.connect(comp); comp.connect(songGain);
+    synth.bus.out = comp;
+    if (st.hiss) {   // the soft record crackle of lofi
+      var h = actx.createBufferSource(), hf = actx.createBiquadFilter(), hv = actx.createGain();
+      h.buffer = synthNoise(); h.loop = true; hf.type = 'lowpass'; hf.frequency.value = 2500; hv.gain.value = st.hiss;
+      h.connect(hf); hf.connect(hv); hv.connect(synth.bus); h.start(); synth.hiss = h;
+    }
+    var stepLen = 60 / st.bpm / 4, step = 0, next = actx.currentTime + 0.08;
+    var scale = [0, 2, 4, 7, 9];   // a pentatonic melody always fits the chords
+    synth.timer = setInterval(function () {
+      while (next < actx.currentTime + 0.2) {
+        var bar = Math.floor(step / 16), s = step % 16, chord = st.chords[bar % st.chords.length];
+        var t = next + (s % 2 ? st.swing * stepLen : 0), barLen = stepLen * 16;
+        if (s === 0 && st.pad) chord.forEach(function (n) { synthTone(n, t, barLen + 0.3, st.pad.type, st.pad.vol, st.pad.cut, 0.25); });
+        if (st.bass && st.bass[s] === 'x') synthTone(chord[0] - 12, t, stepLen * 3.5, 'sine', 0.22, 600, 0.01);
+        if (st.kick && st.kick[s] === 'x') synthHit(t, 'kick');
+        if (st.snare && st.snare[s] === 'x') synthHit(t, 'snare');
+        if (st.hat && st.hat[s] === 'x') synthHit(t, 'hat');
+        if (st.arp && s % st.arp.every === 0) {
+          var k = s / st.arp.every; synthTone(chord[k % chord.length] + st.arp.up, t, st.arp.decay, st.arp.type, st.arp.vol, st.arp.cut, 0.005);
+        }
+        if (st.keys && s % 2 === 0 && Math.random() < st.keys.chance) {
+          synthTone(chord[0] + 12 + scale[Math.floor(Math.random() * scale.length)], t, st.keys.decay, st.keys.type, st.keys.vol, st.keys.cut, 0.01);
+        }
+        next += stepLen; step++;
+      }
+    }, 25);
+  }
+  function synthStop() {
+    clearInterval(synth.timer); synth.timer = null;
+    if (synth.hiss) { try { synth.hiss.stop(); } catch (e) {} synth.hiss = null; }
+    if (synth.bus) { var b = synth.bus; synth.bus = null; setTimeout(function () { b.disconnect(); if (b.out) b.out.disconnect(); }, 600); }
+  }
   function fillMusic() {
     var sel = $('music'); sel.innerHTML = '';
     var add = function (v, t) { var o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
@@ -881,22 +969,26 @@ dialog h2{font-size:17px;margin:0 0 6px}
     } catch (e) { return null; }
   }
   function songVolume(v) { v = Math.max(0, Math.min(1, v)); if (songGain) songGain.gain.value = v; else song.volume = v; }
+  // starts the chosen music from the beginning: a file, or music made by the page
+  function playSong() {
+    var s = songOf(settings.music); if (!s) return Promise.resolve();
+    audioTrack(); songVolume(1);
+    if (s.gen) { song.pause(); synthStart(s.gen); return Promise.resolve(); }
+    synthStop(); setSong();
+    try { song.currentTime = 0; } catch (e) {}
+    return song.play();
+  }
   function startSong() {
     stopTry();
-    if (!musicOn()) return;
-    audioTrack(); setSong(); songVolume(1);
-    try { song.currentTime = 0; } catch (e) {}
-    song.play().catch(function () { status('This music could not be played. Choose another one.', true); });
+    playSong().catch(function () { status('This music could not be played. Choose another one.', true); });
   }
-  function stopSong() { song.pause(); }
-  function stopTry() { if (trying) { trying = false; song.pause(); $('musicTry').textContent = '▶ Listen'; } }
+  function stopSong() { song.pause(); synthStop(); }
+  function stopTry() { if (trying) { trying = false; stopSong(); $('musicTry').textContent = '▶ Listen'; } }
   $('musicTry').addEventListener('click', function () {
     if (trying) { stopTry(); return; }
     if (playing || recording || !musicOn()) return;
-    audioTrack(); setSong(); songVolume(1);
-    try { song.currentTime = 0; } catch (e) {}
     trying = true; $('musicTry').textContent = '■ Stop';
-    song.play().catch(function () { stopTry(); status('This music could not be played. Choose another one.', true); });
+    playSong().catch(function () { stopTry(); status('This music could not be played. Choose another one.', true); });
   });
   $('music').addEventListener('change', function () {
     stopTry();
@@ -937,8 +1029,64 @@ dialog h2{font-size:17px;margin:0 0 6px}
   var pics = {};   // picture idea -> picture (720 x 1280), so a picture is made only once for the same idea
   var making = null, picsFailed = false;   // the pictures being made (a promise), and whether the last try failed
   // One AI picture for one idea (a photo for an advertisement, without any words in it)
+  // Free services, one after the other: Pollinations (with the key) → Hugging Face FLUX → AI Horde.
+  // A service that hit its limit is skipped for 10 minutes, so the next pictures go straight to one that works
+  var picSkip = {};
   function aiPicture(scene) {
     var prompt = scene + ', professional advertising photo, vertical 9:16, natural light, sharp, high detail, no text, no words, no letters, no numbers, no logos, no watermark';
+    var services = [['pollinations', pollinationsPicture], ['huggingface', hfPicture], ['horde', hordePicture]]
+      .filter(function (s) { return !(picSkip[s[0]] > Date.now()) && (s[0] !== 'pollinations' || settings.pkey); });
+    if (!services.length) { picSkip = {}; services = [['huggingface', hfPicture], ['horde', hordePicture]]; }
+    var errors = [];
+    return (function tryNext(i) {
+      if (i >= services.length) return Promise.reject(new Error(errors[0] || 'The free AI picture services are busy right now. Try again in a minute.'));
+      return services[i][1](prompt).then(toCanvas).catch(function (e) {
+        errors.push(e.message); picSkip[services[i][0]] = Date.now() + 10 * 60000;
+        return tryNext(i + 1);
+      });
+    })(0);
+  }
+  // Hugging Face: the free FLUX.1 [schnell] Space (no account needed; a few pictures a day for each internet address)
+  function hfPicture(prompt) {
+    var S = 'https://black-forest-labs-flux-1-schnell.hf.space';
+    return fetchT(S + '/gradio_api/call/infer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: [prompt, 0, true, 576, 1024, 4] }) }, 60)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.event_id) throw new Error('Hugging Face is busy');
+        return fetchT(S + '/gradio_api/call/infer/' + j.event_id, {}, 120).then(function (r) { return r.text(); });
+      })
+      .then(function (t) {
+        var m = /event:\s*complete\s*\ndata:\s*(.+)/.exec(t), url = m && (JSON.parse(m[1])[0] || {}).url;
+        if (!url || url.indexOf(S + '/') !== 0) throw new Error('The free Hugging Face pictures are at their limit for today.');
+        return fetchT(url, {}, 60).then(function (r) { if (!r.ok) throw new Error('Hugging Face picture could not be downloaded'); return r.blob(); });
+      });
+  }
+  // AI Horde: free pictures made by volunteers' computers (no account; small size, can take 20–90 seconds)
+  function hordePicture(prompt) {
+    var H = 'https://aihorde.net/api/v2/generate/', head = { 'Client-Agent': 'ai-reel-maker:1:anonymous' };
+    return fetchT(H + 'async', { method: 'POST', headers: Object.assign({ apikey: '0000000000', 'Content-Type': 'application/json' }, head),
+      body: JSON.stringify({ prompt: prompt + ' ### text, words, letters, watermark, logo, blurry', params: { width: 384, height: 640, steps: 20, n: 1 }, r2: true }) }, 30)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j.id) throw new Error('AI Horde is busy right now');
+        var tries = 0;
+        return (function wait() {
+          return new Promise(function (ok) { setTimeout(ok, 4000); })
+            .then(function () { return fetchT(H + 'check/' + j.id, { headers: head }, 20).then(function (r) { return r.json(); }); })
+            .then(function (c) {
+              if (c.done) return fetchT(H + 'status/' + j.id, { headers: head }, 20).then(function (r) { return r.json(); });
+              if (c.faulted || c.is_possible === false || ++tries > 40) throw new Error('AI Horde could not make the picture');
+              return wait();
+            });
+        })();
+      })
+      .then(function (s) {
+        var img = s.generations && s.generations[0] && s.generations[0].img;
+        if (!img) throw new Error('AI Horde could not make the picture');
+        return fetchT(img, {}, 60).then(function (r) { return r.blob(); });
+      });
+  }
+  function pollinationsPicture(prompt) {
     var base = 'https://gen.pollinations.ai/image/' + encodeURIComponent(prompt) + '?width=720&height=1280&nologo=true&seed=' + Math.floor(Math.random() * 999999999);
     return fetchT(base, { headers: { Authorization: 'Bearer ' + settings.pkey } }, 120)
       .catch(function (e) { if (e && e.name === 'AbortError') throw e; return fetchT(base + '&key=' + encodeURIComponent(settings.pkey), {}, 120); })   // browsers that refuse the header
@@ -947,8 +1095,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
         throw new Error(r.status === 401 || r.status === 403 ? 'Pollinations did not accept the key (check it in ⚙ Keys).'
           : r.status === 402 || r.status === 429 ? 'The free AI pictures are at their limit right now. Try again in a minute.'
           : 'The AI picture service is busy right now. Try again in a minute.');
-      }, netError('the AI picture service'))
-      .then(toCanvas);
+      }, netError('Pollinations'));
   }
   function toCanvas(blob) {
     return new Promise(function (resolve, reject) {
@@ -973,7 +1120,6 @@ dialog h2{font-size:17px;margin:0 0 6px}
   // `asked`: the owner pressed something (then a missing key opens ⚙ Keys; when it runs by itself after a new reel, only a note)
   function aiPictures(fresh, only, asked, onStep) {
     if (!reel) { if (asked) status('Make a reel first: the AI pictures are made with it.', true); return Promise.resolve(null); }
-    if (!settings.pkey) { status('AI background pictures need the Pollinations key (⚙ Keys). Until then the reel uses colours.', true); if (asked) { openKeys(); $('pkey').focus(); } return Promise.resolve(null); }
     if (making) return making;
     var ideas = only ? [only] : [sceneOf(null)].concat(reel.slides.map(sceneOf));
     ideas = ideas.filter(function (s, i) { return s && ideas.indexOf(s) === i && (fresh || !pics[s]); });
@@ -1230,7 +1376,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
   } catch (e) {}
   showChat(); showReel(); draw(); grow();
   // AI pictures still missing (the page was closed, or a picture failed): made now, once the saved ones are back
-  Promise.all(restored).then(function () { if (reel && settings.bg === 'ai' && settings.pkey) aiPictures(false); });
+  Promise.all(restored).then(function () { if (reel && settings.bg === 'ai') aiPictures(false); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
   if (!store.get('settings', null) && !settings.key && !settings.okey && !settings.gkey) openKeys();   // first visit: paste the keys
   // for checking the page from the browser's console
