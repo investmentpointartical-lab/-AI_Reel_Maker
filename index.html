@@ -80,6 +80,13 @@ dialog h2{font-size:17px;margin:0 0 6px}
 .videoDone{margin-top:8px;font-size:13px;background:#e9f7ef;color:#1b6b3f;border:1px solid #bfe6cf;border-radius:12px;padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .videoDone a{font-weight:700;color:var(--main)}
 .reelcard.playing:hover #ovPlay{opacity:.85}
+/* ⛶ full screen: the reel at full size on black (the browser's full screen, or the whole window on iPhones) */
+#ovFull{position:absolute;top:12px;right:12px;width:40px;height:40px;border-radius:50%;border:0;padding:0;background:rgba(30,30,30,.62);color:#fff;font-size:20px;line-height:1;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:2}
+.stage:fullscreen,.stage.full{background:#000;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+.stage.full{position:fixed;inset:0;z-index:1000;height:100dvh}
+.stage:fullscreen canvas,.stage.full canvas{width:100%;height:100%;aspect-ratio:auto;object-fit:contain;border-radius:0;box-shadow:none;background:#000}
+.stage:fullscreen #ovFull,.stage.full #ovFull{top:16px;right:16px;width:46px;height:46px}
+.stage:fullscreen .ov,.stage.full .ov{bottom:24px;padding:0 18px;left:50%;right:auto;transform:translateX(-50%);width:min(100vw,calc(100vh * 9 / 16));box-sizing:border-box}
 /* while the reel is being made: a dotted placeholder with a percentage */
 .making{position:relative;aspect-ratio:9/16;border-radius:18px;background-color:#fafbff;
   background-image:radial-gradient(circle,#93a8f4 1.3px,transparent 1.8px);background-size:14px 14px;
@@ -135,6 +142,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
     <div class="stage" id="stage">
       <canvas id="cv" width="1080" height="1920"></canvas>
       <button id="ovPlay" title="Play" aria-label="Play">▶</button>
+      <button id="ovFull" title="Full screen" aria-label="Full screen">⛶</button>
       <div class="recLabel" id="recLabel" hidden></div>
       <div class="ov"><button id="ovEdit" title="Edit the reel">✏ Edit</button><button id="ovDown" title="Download video" aria-label="Download video">⬇</button></div>
     </div>
@@ -1034,13 +1042,15 @@ dialog h2{font-size:17px;margin:0 0 6px}
   var picSkip = {};
   function aiPicture(scene) {
     var prompt = scene + ', professional advertising photo, vertical 9:16, natural light, sharp, high detail, no text, no words, no letters, no numbers, no logos, no watermark';
-    var services = [['pollinations', pollinationsPicture], ['huggingface', hfPicture], ['horde', hordePicture]]
+    // FLUX and AI Horde have no "do not" box: words like "no text" in the prompt make them draw letters, so they get only the scene
+    var clean = scene + ', candid professional photograph, vertical 9:16, natural light, shallow depth of field, sharp, high detail, plain background areas';
+    var services = [['pollinations', function () { return pollinationsPicture(prompt); }], ['huggingface', function () { return hfPicture(clean); }], ['horde', function () { return hordePicture(clean); }]]
       .filter(function (s) { return !(picSkip[s[0]] > Date.now()) && (s[0] !== 'pollinations' || settings.pkey); });
-    if (!services.length) { picSkip = {}; services = [['huggingface', hfPicture], ['horde', hordePicture]]; }
+    if (!services.length) { picSkip = {}; services = services.concat([['huggingface', function () { return hfPicture(clean); }], ['horde', function () { return hordePicture(clean); }]]); }
     var errors = [];
     return (function tryNext(i) {
       if (i >= services.length) return Promise.reject(new Error(errors[0] || 'The free AI picture services are busy right now. Try again in a minute.'));
-      return services[i][1](prompt).then(toCanvas).catch(function (e) {
+      return services[i][1]().then(toCanvas).catch(function (e) {
         errors.push(e.message); picSkip[services[i][0]] = Date.now() + 10 * 60000;
         return tryNext(i + 1);
       });
@@ -1065,7 +1075,10 @@ dialog h2{font-size:17px;margin:0 0 6px}
   function hordePicture(prompt) {
     var H = 'https://aihorde.net/api/v2/generate/', head = { 'Client-Agent': 'ai-reel-maker:1:anonymous' };
     return fetchT(H + 'async', { method: 'POST', headers: Object.assign({ apikey: '0000000000', 'Content-Type': 'application/json' }, head),
-      body: JSON.stringify({ prompt: prompt + ' ### text, words, letters, watermark, logo, blurry', params: { width: 384, height: 640, steps: 20, n: 1 }, r2: true }) }, 30)
+      // photo-like models, then the free face repair (GFPGAN) and 2x sharper size (RealESRGAN): 768 x 1280 with proper faces
+      body: JSON.stringify({ prompt: prompt + ' ### deformed face, ugly face, distorted eyes, bad anatomy, extra fingers, cartoon, painting, text, words, letters, writing, signs, watermark, logo, blurry',
+        models: ["ICBINP - I Can't Believe It's Not Photography", 'Realistic Vision', 'Photon', 'majicMIX realistic', 'Edge Of Realism'],
+        params: { width: 384, height: 640, steps: 25, n: 1, sampler_name: 'k_dpmpp_2m', karras: true, cfg_scale: 6, post_processing: ['GFPGAN', 'RealESRGAN_x2plus'] }, r2: true }) }, 30)
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j.id) throw new Error('AI Horde is busy right now');
@@ -1174,12 +1187,35 @@ dialog h2{font-size:17px;margin:0 0 6px}
   // Edit: opens the editing of the text (beside the chat on a computer, under the reel on a phone)
   $('ovEdit').addEventListener('click', function (e) {
     e.stopPropagation();
+    if (isFull()) closeFull();   // the editing is beside the reel, not in the full screen
     $('editBox').open = true;
     $('editBox').scrollIntoView({ block: 'start', behavior: 'smooth' });
     setTimeout(function () { $('title').focus({ preventScroll: true }); }, 300);
   });
   $('download').addEventListener('click', makeVideo);
   $('ovDown').addEventListener('click', function (e) { e.stopPropagation(); makeVideo(); });
+  // ⛶ full screen: the reel at full size, playing from the start; ✕, Esc or the phone's back gesture closes it
+  // The reel covers the window at once; the browser's real full screen (no address bar) is added when it allows it
+  var wasFs = false;
+  function isFull() { return $('stage').classList.contains('full'); }
+  function fullLabel() { var on = isFull(); $('ovFull').textContent = on ? '✕' : '⛶'; $('ovFull').title = on ? 'Close full screen' : 'Full screen'; }
+  function openFull() {
+    var st = $('stage');
+    st.classList.add('full'); fullLabel();
+    try { if (st.requestFullscreen) st.requestFullscreen().catch(function () {}); } catch (e) {}
+    if (!playing && !recording && reel) { status(''); play(); }
+  }
+  function closeFull() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(function () {});
+    $('stage').classList.remove('full'); fullLabel();
+  }
+  $('ovFull').addEventListener('click', function (e) { e.stopPropagation(); if (isFull()) closeFull(); else openFull(); });
+  document.addEventListener('fullscreenchange', function () {   // the browser's own Esc / back closes the reel too
+    var now = !!document.fullscreenElement;
+    if (wasFs && !now) $('stage').classList.remove('full');
+    wasFs = now; fullLabel();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $('stage').classList.contains('full')) closeFull(); });
   // phone or computer layout when the window size changes (turning the phone)
   // (checked on every resize, acted on only when it changes: on a phone the keyboard opening also resizes the window)
   var wasPhone = window.matchMedia('(max-width: 860px)').matches;
