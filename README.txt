@@ -37,3 +37,5 @@ PUT IT ON INFINITYFREE (free hosting)
 3. In the control panel open "File Manager" and go into the folder "htdocs".
 4. Delete the sample files there, then upload index.html from this folder.
 5. Open your address, press ⚙ Keys and paste your keys (once on each device).
+
+Music: choose a song under Reel details > Music, or 'Upload music from this device'. The song plays with the reel and goes into the downloaded video (fades out at the end). To add a song for everyone: put the file in the music folder and add a line to SONGS in index.html.

@@ -152,6 +152,11 @@ dialog h2{font-size:17px;margin:0 0 6px}
       <label style="margin:0"><span class="muted">Colour</span><select id="theme"></select></label>
       <label style="margin:0"><span class="muted">Background</span><select id="bg"><option value="ai">AI picture</option><option value="colour">No picture</option><option value="own">My picture</option></select></label>
     </div>
+    <div class="row musicRow">
+      <label style="margin:0;flex:1"><span class="muted">Music</span><select id="music"></select></label>
+      <button id="musicTry" class="small" title="Listen to this music" style="align-self:flex-end;flex:0 0 auto">▶ Listen</button>
+    </div>
+    <input type="file" id="musicFile" accept="audio/*" hidden>
     <div class="row" id="picRow" hidden><button id="makePics" class="small" title="Make new AI pictures for every slide">✨ Make AI pictures again (some failed)</button></div>
     <input type="file" id="bgFile" accept="image/jpeg,image/png,image/webp" hidden>
     <div id="status" aria-live="polite"></div>
@@ -776,9 +781,11 @@ dialog h2{font-size:17px;margin:0 0 6px}
     return new Promise(function (resolve) {
       var start = performance.now(), end = total();
       playing = true; $('play').textContent = '■ Stop'; $('ovPlay').textContent = '❚❚'; $('reelCard').classList.add('playing');
+      startSong();
       (function step() {
         time = Math.min(end, (performance.now() - start) / 1000); draw();
-        if (time < end && playing) setTimeout(step, 1000 / 30); else { playing = false; $('play').textContent = '▶ Play'; $('ovPlay').textContent = '▶'; $('reelCard').classList.remove('playing'); if (!recording) { time = COVER; draw(); } resolve(); }
+        songVolume(Math.min(1, (end - time) / 1.5));   // the music fades out over the last 1.5 seconds
+        if (time < end && playing) setTimeout(step, 1000 / 30); else { stopSong(); playing = false; $('play').textContent = '▶ Play'; $('ovPlay').textContent = '▶'; $('reelCard').classList.remove('playing'); if (!recording) { time = COVER; draw(); } resolve(); }
       })();
     });
   }
@@ -787,15 +794,23 @@ dialog h2{font-size:17px;margin:0 0 6px}
   var videoUrl = '';
   function makeVideo() {
     if (!reel) { status('Make a reel first: type your idea and press ➤.', true); return; }
-    var type = cv.captureStream && window.MediaRecorder && ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0];
+    stopTry();
+    var withMusic = musicOn(), music = withMusic ? audioTrack() : null;
+    if (!music) withMusic = false;
+    var types = withMusic
+      ? ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,opus', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+      : ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+    var type = cv.captureStream && window.MediaRecorder && types.filter(function (t) { return MediaRecorder.isTypeSupported(t); })[0];
     if (!type) { status('This browser cannot make videos. Use Chrome or Edge.', true); return; }
-    var stream = cv.captureStream(30), rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6000000 }), chunks = [];
+    var stream = cv.captureStream(30);
+    if (withMusic) stream.addTrack(music);   // the music goes into the video with the pictures
+    var rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 6000000, audioBitsPerSecond: 160000 }), chunks = [];
     rec.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
     var progress = null;
     rec.onstop = function () {
       clearInterval(progress); $('recLabel').hidden = true;
       recording = false; time = COVER; draw();   // the video ends on the last screen; the card goes back to its cover
-      stream.getTracks().forEach(function (t) { t.stop(); });
+      stream.getVideoTracks().forEach(function (t) { t.stop(); });   // the music track is kept for the next video
       var ext = type.indexOf('mp4') > -1 ? 'mp4' : 'webm', blob = new Blob(chunks, { type: type.split(';')[0] });
       var name = (reel.title.replace(/[^\p{L}\p{M}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'reel') + '.' + ext;
       $('download').disabled = $('play').disabled = $('ovDown').disabled = $('ovPlay').disabled = false;
@@ -810,7 +825,7 @@ dialog h2{font-size:17px;margin:0 0 6px}
       $('videoDoneText').textContent = '✔ Video saved to Downloads (' + ext.toUpperCase() + ', ' + Math.max(1, Math.round(blob.size / 1048576)) + ' MB)';
       $('videoDone').hidden = false;
       $('videoLink').click();
-      status('Video saved to Downloads. Add music in Instagram / Facebook when you post.' + (ext === 'webm' ? ' Instagram needs MP4: use the newest Chrome or Edge.' : ''));
+      status((withMusic ? 'Video saved to Downloads, with the music.' : 'Video saved to Downloads. Choose Music above to add a song, or add it in Instagram / Facebook.') + (ext === 'webm' ? ' Instagram needs MP4: use the newest Chrome or Edge.' : ''));
     };
     $('download').disabled = $('play').disabled = $('ovDown').disabled = $('ovPlay').disabled = true;
     $('videoDone').hidden = true;
@@ -822,6 +837,83 @@ dialog h2{font-size:17px;margin:0 0 6px}
     recording = true; rec.start();
     play().then(function () { setTimeout(function () { rec.stop(); }, 250); });
   }
+
+  /* ---------------- music: a song from the list, or one from this device ---------------- */
+  // Songs in the "music" folder of this website. To add one: put the file in the music folder and add a line here
+  var SONGS = [
+    { name: 'Music 1', src: 'music/music1.m4a' }
+  ];
+  var song = new Audio(), ownSong = null, actx = null, songGain = null, songOut = null, trying = false;
+  song.loop = true; song.preload = 'none';
+  function songUrl(v) {
+    if (v === 'own') return ownSong ? ownSong.url : '';
+    var m = /^s(\d+)$/.exec(v || ''); return m && SONGS[+m[1]] ? SONGS[+m[1]].src : '';
+  }
+  function musicOn() { return !!songUrl(settings.music); }
+  function fillMusic() {
+    var sel = $('music'); sel.innerHTML = '';
+    var add = function (v, t) { var o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+    add('none', 'No music');
+    SONGS.forEach(function (s, i) { add('s' + i, '🎵 ' + s.name); });
+    if (ownSong) add('own', '📱 ' + ownSong.name);
+    add('upload', '📁 Upload music from this device…');
+    if (!musicOn()) settings.music = 'none';
+    sel.value = settings.music;
+    $('musicTry').disabled = !musicOn();
+  }
+  function setSong() {
+    var u = songUrl(settings.music);
+    if (!u) { song.pause(); song.removeAttribute('src'); song.load(); return; }
+    if (song.getAttribute('src') !== u) { song.src = u; song.load(); }
+  }
+  // The song goes to the speakers and, while a video is made, into the video too (one audio line for both)
+  function audioTrack() {
+    try {
+      if (!actx) {
+        var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+        actx = new AC();
+        var source = actx.createMediaElementSource(song);
+        songGain = actx.createGain(); songOut = actx.createMediaStreamDestination();
+        source.connect(songGain); songGain.connect(actx.destination); songGain.connect(songOut);
+      }
+      actx.resume();
+      return songOut.stream.getAudioTracks()[0] || null;
+    } catch (e) { return null; }
+  }
+  function songVolume(v) { v = Math.max(0, Math.min(1, v)); if (songGain) songGain.gain.value = v; else song.volume = v; }
+  function startSong() {
+    stopTry();
+    if (!musicOn()) return;
+    audioTrack(); setSong(); songVolume(1);
+    try { song.currentTime = 0; } catch (e) {}
+    song.play().catch(function () { status('This music could not be played. Choose another one.', true); });
+  }
+  function stopSong() { song.pause(); }
+  function stopTry() { if (trying) { trying = false; song.pause(); $('musicTry').textContent = '▶ Listen'; } }
+  $('musicTry').addEventListener('click', function () {
+    if (trying) { stopTry(); return; }
+    if (playing || recording || !musicOn()) return;
+    audioTrack(); setSong(); songVolume(1);
+    try { song.currentTime = 0; } catch (e) {}
+    trying = true; $('musicTry').textContent = '■ Stop';
+    song.play().catch(function () { stopTry(); status('This music could not be played. Choose another one.', true); });
+  });
+  $('music').addEventListener('change', function () {
+    stopTry();
+    if ($('music').value === 'upload') { $('music').value = settings.music; $('musicFile').click(); return; }
+    settings.music = $('music').value; store.set('settings', settings); setSong(); fillMusic();
+    status(musicOn() ? 'Music chosen: press ▶ Play to hear it with the reel. It goes into the downloaded video.' : 'No music in the video.');
+  });
+  $('musicFile').addEventListener('change', function () {
+    var file = $('musicFile').files[0]; $('musicFile').value = '';
+    if (!file) return;
+    if (!/^audio\//.test(file.type) && !/\.(mp3|m4a|aac|wav|ogg|oga|opus|weba|flac)$/i.test(file.name)) { status('This is not a music file. Choose an MP3, M4A, WAV or OGG file.', true); return; }
+    if (ownSong) URL.revokeObjectURL(ownSong.url);
+    ownSong = { name: file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'My music', url: URL.createObjectURL(file) };
+    // a song from the device is kept only while this page is open (it is too big to save in the browser)
+    settings.music = 'own'; store.set('settings', settings); setSong(); fillMusic();
+    status('Your music "' + ownSong.name + '" is chosen: press ▶ Play to hear it with the reel.');
+  });
 
   /* ---------------- background picture: a free AI picture, or your own ---------------- */
   // Kept small (720 x 1280) so it can be remembered in this browser
@@ -1118,6 +1210,8 @@ dialog h2{font-size:17px;margin:0 0 6px}
   if (reel && (!Array.isArray(reel.slides) || reel.slides.some(function (s) { return !Array.isArray(s.points); }))) reel = null;
   if (reel) { delete reel.logo; reel.slides.forEach(function (s) { delete s.icon; }); store.set('reel', reel); }   // cut-out icons are no longer used
   $('theme').value = settings.theme; $('bg').value = settings.bg;
+  if (settings.music === 'own') settings.music = 'none';   // a song from the device is gone after the page is closed
+  fillMusic();
   try {   // the background picture of last time
     var kept = localStorage.getItem(P + 'bgimg');
     if (kept) { var oldImg = new Image(); oldImg.onload = function () { var c = document.createElement('canvas'); c.width = 720; c.height = 1280; c.getContext('2d').drawImage(oldImg, 0, 0, 720, 1280); bgImg = c; draw(); }; oldImg.src = kept; }
